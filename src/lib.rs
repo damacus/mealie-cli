@@ -322,4 +322,16 @@ mod tests {
         assert!(output.starts_with("[\n"));
         assert!(output.contains("\"ok\": true"));
     }
+
+    #[test]
+    fn formats_multiple_quiet_ids() {
+        let values = vec![
+            record("plan_deleted", [("id", serde_json::json!(10))]),
+            record("plan_created", [("id", serde_json::json!(11))]),
+            record("empty", [("resource", serde_json::json!("recipe"))]),
+        ];
+        let output = write_output(OutputMode::Quiet, values).expect("quiet output");
+
+        assert_eq!(output, "10\n11\n");
+    }
 }

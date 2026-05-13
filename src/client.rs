@@ -37,36 +37,36 @@ pub struct DeletedPlanEntry {
 }
 
 #[derive(Debug, Serialize)]
-pub struct PlanCreateRequest {
-    date: String,
+pub struct PlanCreateRequest<'a> {
+    date: &'a str,
     #[serde(rename = "entryType")]
-    entry_type: String,
+    entry_type: &'a str,
     #[serde(skip_serializing_if = "Option::is_none")]
-    title: Option<String>,
+    title: Option<&'a str>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    text: Option<String>,
+    text: Option<&'a str>,
     #[serde(rename = "recipeId", skip_serializing_if = "Option::is_none")]
-    recipe_id: Option<String>,
+    recipe_id: Option<&'a str>,
 }
 
-impl PlanCreateRequest {
-    pub fn title(date: &str, meal_type: &str, title: &str) -> Self {
+impl<'a> PlanCreateRequest<'a> {
+    pub fn title(date: &'a str, meal_type: &'a str, title: &'a str) -> Self {
         Self {
-            date: date.to_string(),
-            entry_type: meal_type.to_string(),
-            title: Some(title.to_string()),
-            text: Some(String::new()),
+            date,
+            entry_type: meal_type,
+            title: Some(title),
+            text: Some(""),
             recipe_id: None,
         }
     }
 
-    pub fn recipe(date: &str, meal_type: &str, recipe_id: &str) -> Self {
+    pub fn recipe(date: &'a str, meal_type: &'a str, recipe_id: &'a str) -> Self {
         Self {
-            date: date.to_string(),
-            entry_type: meal_type.to_string(),
+            date,
+            entry_type: meal_type,
             title: None,
             text: None,
-            recipe_id: Some(recipe_id.to_string()),
+            recipe_id: Some(recipe_id),
         }
     }
 }
@@ -90,7 +90,7 @@ impl MealieClient {
             .and_then(|response| checked_json(response, "search recipes"))?;
 
         collection_items(&value)
-            .into_iter()
+            .iter()
             .map(recipe_from_value)
             .collect()
     }
@@ -103,7 +103,7 @@ impl MealieClient {
             .send()
             .and_then(|response| checked_json(response, "get recipe"))?;
 
-        recipe_from_value(value)
+        recipe_from_value(&value)
     }
 
     pub fn list_plan(&self, from: &str, to: &str) -> Result<Vec<PlanEntry>, AppError> {
@@ -122,7 +122,7 @@ impl MealieClient {
             .and_then(|response| checked_json(response, "list meal plans"))?;
 
         collection_items(&value)
-            .into_iter()
+            .iter()
             .map(plan_entry_from_value)
             .collect()
     }
@@ -139,6 +139,7 @@ impl MealieClient {
             .and_then(|response| checked_optional_json(response, "delete meal plan"))?;
 
         Ok(value
+            .as_ref()
             .map(deleted_plan_entry_from_value)
             .transpose()?
             .unwrap_or(DeletedPlanEntry {
@@ -150,7 +151,7 @@ impl MealieClient {
             }))
     }
 
-    pub fn create_plan(&self, request: &PlanCreateRequest) -> Result<PlanEntry, AppError> {
+    pub fn create_plan(&self, request: &PlanCreateRequest<'_>) -> Result<PlanEntry, AppError> {
         let value = self
             .http
             .post(self.config.endpoint("/api/households/mealplans"))
@@ -159,7 +160,7 @@ impl MealieClient {
             .send()
             .and_then(|response| checked_json(response, "create meal plan"))?;
 
-        plan_entry_from_value(value)
+        plan_entry_from_value(&value)
     }
 }
 
@@ -195,41 +196,41 @@ fn checked_optional_json(
     checked_json(response, action).map(Some)
 }
 
-fn collection_items(value: &Value) -> Vec<Value> {
+fn collection_items(value: &Value) -> &[Value] {
     if let Some(items) = value.get("items").and_then(Value::as_array) {
-        return items.clone();
+        return items;
     }
 
     if let Some(data) = value.get("data").and_then(Value::as_array) {
-        return data.clone();
+        return data;
     }
 
-    value.as_array().cloned().unwrap_or_default()
+    value.as_array().map(Vec::as_slice).unwrap_or(&[])
 }
 
-fn recipe_from_value(value: Value) -> Result<Recipe, AppError> {
-    check_error_value(&value)?;
+fn recipe_from_value(value: &Value) -> Result<Recipe, AppError> {
+    check_error_value(value)?;
 
     Ok(Recipe {
-        id: required_string(&value, &["id", "recipeId"])?,
-        slug: required_string(&value, &["slug"])?,
-        name: required_string(&value, &["name"])?,
+        id: required_string(value, &["id", "recipeId"])?,
+        slug: required_string(value, &["slug"])?,
+        name: required_string(value, &["name"])?,
     })
 }
 
-fn plan_entry_from_value(value: Value) -> Result<PlanEntry, AppError> {
-    check_error_value(&value)?;
+fn plan_entry_from_value(value: &Value) -> Result<PlanEntry, AppError> {
+    check_error_value(value)?;
 
     Ok(PlanEntry {
-        id: required_i64(&value, &["id"])?,
-        date: optional_string(&value, &["date"]),
-        meal: optional_string(&value, &["entryType", "meal", "type"]),
-        title: optional_string(&value, &["title", "text", "name"]).or_else(|| {
+        id: required_i64(value, &["id"])?,
+        date: optional_string(value, &["date"]),
+        meal: optional_string(value, &["entryType", "meal", "type"]),
+        title: optional_string(value, &["title", "text", "name"]).or_else(|| {
             value
                 .get("recipe")
                 .and_then(|recipe| optional_string(recipe, &["name"]))
         }),
-        recipe_id: optional_string(&value, &["recipeId"]).or_else(|| {
+        recipe_id: optional_string(value, &["recipeId"]).or_else(|| {
             value
                 .get("recipe")
                 .and_then(|recipe| optional_string(recipe, &["id"]))
@@ -237,22 +238,22 @@ fn plan_entry_from_value(value: Value) -> Result<PlanEntry, AppError> {
         recipe: value
             .get("recipe")
             .and_then(|recipe| optional_string(recipe, &["name"]))
-            .or_else(|| optional_string(&value, &["recipeName"])),
+            .or_else(|| optional_string(value, &["recipeName"])),
     })
 }
 
-fn deleted_plan_entry_from_value(value: Value) -> Result<DeletedPlanEntry, AppError> {
-    check_error_value(&value)?;
+fn deleted_plan_entry_from_value(value: &Value) -> Result<DeletedPlanEntry, AppError> {
+    check_error_value(value)?;
 
     Ok(DeletedPlanEntry {
-        id: optional_i64(&value, &["id"]),
-        date: optional_string(&value, &["date"]),
-        meal: optional_string(&value, &["entryType", "meal", "type"]),
-        title: optional_string(&value, &["title", "text", "name"]),
+        id: optional_i64(value, &["id"]),
+        date: optional_string(value, &["date"]),
+        meal: optional_string(value, &["entryType", "meal", "type"]),
+        title: optional_string(value, &["title", "text", "name"]),
         recipe: value
             .get("recipe")
             .and_then(|recipe| optional_string(recipe, &["name"]))
-            .or_else(|| optional_string(&value, &["recipeName"])),
+            .or_else(|| optional_string(value, &["recipeName"])),
     })
 }
 
