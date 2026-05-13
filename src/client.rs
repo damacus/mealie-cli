@@ -1,8 +1,12 @@
+use std::time::Duration;
+
 use reqwest::{StatusCode, blocking::Client};
 use serde::Serialize;
 use serde_json::Value;
 
 use crate::{AppError, ErrorCode, config::Config};
+
+const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 
 #[derive(Debug, Clone)]
 pub struct MealieClient {
@@ -74,6 +78,8 @@ impl<'a> PlanCreateRequest<'a> {
 impl MealieClient {
     pub fn new(config: Config) -> Result<Self, AppError> {
         let http = Client::builder()
+            // Bound external API calls so an unresponsive Mealie server cannot hang automation indefinitely.
+            .timeout(REQUEST_TIMEOUT)
             .build()
             .map_err(|error| AppError::new(ErrorCode::NetworkError, error.to_string()))?;
 
@@ -322,5 +328,15 @@ impl From<reqwest::Error> for AppError {
         }
 
         Self::new(ErrorCode::NetworkError, error.to_string())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn configures_bounded_request_timeout() {
+        assert_eq!(REQUEST_TIMEOUT, Duration::from_secs(30));
     }
 }
