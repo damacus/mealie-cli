@@ -3,5 +3,5 @@
 .github
 target
 site
-site_docs
+docs
 *.md
