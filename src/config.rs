@@ -1,9 +1,21 @@
+use std::fmt;
+
 use crate::{AppError, ErrorCode};
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct Config {
     pub base_url: String,
     pub token: String,
+}
+
+impl fmt::Debug for Config {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("Config")
+            .field("base_url", &self.base_url)
+            .field("token", &"[redacted]")
+            .finish()
+    }
 }
 
 impl Config {
@@ -67,5 +79,20 @@ mod tests {
             config.endpoint("/api/recipes/test"),
             "https://mealie.example/api/recipes/test"
         );
+    }
+
+    #[test]
+    fn redacts_token_from_debug_output() {
+        let config = Config::from_env([
+            ("MEALIE_URL", "https://mealie.example"),
+            ("MEALIE_TOKEN", "secret-token"),
+        ])
+        .expect("config");
+
+        let debug = format!("{config:?}");
+
+        assert!(debug.contains("https://mealie.example"));
+        assert!(debug.contains("[redacted]"));
+        assert!(!debug.contains("secret-token"));
     }
 }
