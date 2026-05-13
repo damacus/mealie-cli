@@ -24,7 +24,7 @@ impl OutputMode {
 }
 
 pub fn record<const N: usize>(record_type: &str, fields: [(&str, Value); N]) -> Value {
-    let mut object = Map::new();
+    let mut object = Map::with_capacity(N + 2);
     object.insert("ok".to_string(), Value::Bool(true));
     object.insert("type".to_string(), Value::String(record_type.to_string()));
 
@@ -51,26 +51,35 @@ pub fn write_output(mode: OutputMode, values: Vec<Value>) -> Result<String, AppE
             Ok(lines)
         }
         OutputMode::Quiet => {
-            let ids: Vec<String> = values
-                .iter()
-                .filter(|value| {
-                    matches!(
-                        value.get("type").and_then(Value::as_str),
-                        Some("plan_created" | "plan_deleted")
-                    )
-                })
-                .filter_map(|value| match value.get("id") {
-                    Some(Value::Number(number)) => Some(number.to_string()),
-                    Some(Value::String(text)) => Some(text.clone()),
-                    _ => None,
-                })
-                .collect();
-
-            if ids.is_empty() {
-                Ok(String::new())
-            } else {
-                Ok(format!("{}\n", ids.join("\n")))
+            let mut output = String::new();
+            for value in values.iter().filter(|value| {
+                matches!(
+                    value.get("type").and_then(Value::as_str),
+                    Some("plan_created" | "plan_deleted")
+                )
+            }) {
+                match value.get("id") {
+                    Some(Value::Number(number)) => {
+                        if !output.is_empty() {
+                            output.push('\n');
+                        }
+                        output.push_str(&number.to_string());
+                    }
+                    Some(Value::String(text)) => {
+                        if !output.is_empty() {
+                            output.push('\n');
+                        }
+                        output.push_str(text);
+                    }
+                    _ => {}
+                }
             }
+
+            if !output.is_empty() {
+                output.push('\n');
+            }
+
+            Ok(output)
         }
     }
 }

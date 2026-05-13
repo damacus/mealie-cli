@@ -39,6 +39,28 @@ fn searches_recipes() {
 }
 
 #[test]
+fn searches_recipes_from_data_wrapper() {
+    let mut server = Server::new();
+    let _mock = server
+        .mock("GET", "/api/recipes")
+        .match_query(Matcher::AllOf(vec![
+            Matcher::UrlEncoded("search".into(), "pesto".into()),
+            Matcher::UrlEncoded("perPage".into(), "10".into()),
+        ]))
+        .with_status(200)
+        .with_body(r#"{"data":[{"id":"r1","slug":"pesto","name":"Pesto"}]}"#)
+        .create();
+
+    let output = run_from(["mealie", "recipes", "search", "pesto"], env(&server.url()))
+        .expect("search output");
+
+    assert_eq!(
+        output,
+        "{\"id\":\"r1\",\"name\":\"Pesto\",\"ok\":true,\"slug\":\"pesto\",\"type\":\"recipe\"}\n"
+    );
+}
+
+#[test]
 fn search_empty_outputs_empty_record() {
     let mut server = Server::new();
     let _mock = server
@@ -136,6 +158,46 @@ fn lists_plan_with_type_filter() {
     assert!(output.contains("\"id\":2"));
     assert!(!output.contains("\"id\":1"));
     assert!(output.contains("\"recipe\":\"Pasta\""));
+}
+
+#[test]
+fn lists_plan_from_top_level_array() {
+    let mut server = Server::new();
+    let _mock = server
+        .mock("GET", "/api/households/mealplans")
+        .match_query(Matcher::AllOf(vec![
+            Matcher::UrlEncoded("start_date".into(), "2026-05-13".into()),
+            Matcher::UrlEncoded("end_date".into(), "2026-05-16".into()),
+            Matcher::UrlEncoded("perPage".into(), "100".into()),
+            Matcher::UrlEncoded("orderBy".into(), "date".into()),
+            Matcher::UrlEncoded("orderDirection".into(), "asc".into()),
+        ]))
+        .with_status(200)
+        .with_body(
+            r#"[
+                {"id":1,"date":"2026-05-13","entryType":"dinner","title":"Pasta"}
+            ]"#,
+        )
+        .create();
+
+    let output = run_from(
+        [
+            "mealie",
+            "plan",
+            "list",
+            "--from",
+            "2026-05-13",
+            "--to",
+            "2026-05-16",
+        ],
+        env(&server.url()),
+    )
+    .expect("plan list");
+
+    assert_eq!(
+        output,
+        "{\"date\":\"2026-05-13\",\"id\":1,\"meal\":\"dinner\",\"ok\":true,\"recipe\":null,\"recipeId\":null,\"title\":\"Pasta\",\"type\":\"plan_entry\"}\n"
+    );
 }
 
 #[test]
