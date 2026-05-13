@@ -1,0 +1,7 @@
+.git
+.gitignore
+.github
+target
+site
+site_docs
+*.md

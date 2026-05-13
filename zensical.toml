@@ -1,0 +1,20 @@
+site_name = "Mealie CLI Documentation"
+
+[site]
+url = "https://damacus.github.io/mealie-cli"
+
+[build]
+src_dir = "site_docs"
+site_dir = "site"
+
+[navigation]
+items = [
+	{ name = "Home", path = "index.md" },
+	{ name = "Guides", items = [
+		{ name = "Installation", path = "installation.md" },
+		{ name = "Configuration", path = "configuration.md" },
+		{ name = "Commands", path = "commands.md" },
+		{ name = "Output", path = "output.md" },
+		{ name = "Docker", path = "docker.md" },
+	] },
+]
