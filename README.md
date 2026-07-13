@@ -28,6 +28,16 @@ MEALIE_TOKEN=<token>
 
 `MEALIE_URL` may include a trailing slash. `MEALIE_TOKEN` is sent as a bearer token and is never printed by the CLI.
 
+HTTPS is required by default. For a deliberately insecure local or isolated
+network, explicitly opt in to HTTP:
+
+```text
+MEALIE_ALLOW_INSECURE_HTTP=true
+```
+
+This override allows the bearer token to travel without transport encryption
+and should not be used on untrusted networks.
+
 ## Output
 
 NDJSON is the default output format, one JSON object per line:

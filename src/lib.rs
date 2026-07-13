@@ -274,7 +274,6 @@ mod tests {
 
     #[test]
     fn validates_dates() {
-        let server = mockito::Server::new();
         let error = run_from(
             [
                 "mealie",
@@ -285,7 +284,7 @@ mod tests {
                 "--to",
                 "2026-05-16",
             ],
-            env(&server.url()),
+            env("https://mealie.example"),
         )
         .expect_err("invalid date should fail");
 
@@ -294,7 +293,6 @@ mod tests {
 
     #[test]
     fn rejects_invalid_meal_type() {
-        let server = mockito::Server::new();
         let error = run_from(
             [
                 "mealie",
@@ -307,7 +305,7 @@ mod tests {
                 "--type",
                 "brunch",
             ],
-            env(&server.url()),
+            env("https://mealie.example"),
         )
         .expect_err("invalid meal type should fail");
 

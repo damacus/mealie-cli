@@ -11,6 +11,11 @@ export MEALIE_TOKEN=your-token
 
 - `MEALIE_URL`: required Mealie base URL. A trailing slash is allowed.
 - `MEALIE_TOKEN`: required bearer token.
+- `MEALIE_ALLOW_INSECURE_HTTP`: optional. Set to `true` to allow an `http://`
+  `MEALIE_URL`; HTTPS is required by default.
+
+Only use the HTTP override for a deliberately isolated local or private
+network. It permits the bearer token to travel without transport encryption.
 
 Requests use:
 
