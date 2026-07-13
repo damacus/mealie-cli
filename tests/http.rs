@@ -150,12 +150,17 @@ fn maps_not_found() {
     let _mock = server
         .mock("GET", "/api/recipes/missing")
         .with_status(404)
+        .with_body(r#"{"detail":{"message":"No Entry Found","error":true,"exception":null}}"#)
         .create();
 
     let error =
         run_from(["mealie", "recipes", "get", "missing"], env(&server.url())).expect_err("404");
 
     assert_eq!(error.code(), ErrorCode::NotFound);
+    assert_eq!(
+        error.to_human(),
+        "Error: get recipe: No Entry Found (HTTP 404 Not Found)"
+    );
 }
 
 #[test]
@@ -426,7 +431,7 @@ fn maps_api_error() {
     assert_eq!(error.code(), ErrorCode::ApiError);
     assert_eq!(
         error.to_string(),
-        "get recipe failed with HTTP 500 Internal Server Error: database unavailable"
+        "get recipe: database unavailable (HTTP 500 Internal Server Error)"
     );
 }
 

@@ -183,8 +183,8 @@ fn checked_json(response: reqwest::blocking::Response, action: &str) -> Result<V
 
     let detail = response.text().ok().and_then(|body| error_detail(&body));
     let message = match detail {
-        Some(detail) => format!("{action} failed with HTTP {status}: {detail}"),
-        None => format!("{action} failed with HTTP {status}"),
+        Some(detail) => format!("{action}: {detail} (HTTP {status})"),
+        None => format!("{action} failed (HTTP {status})"),
     };
     let code = match status {
         StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN => ErrorCode::Authentication,
@@ -213,15 +213,23 @@ fn error_detail(body: &str) -> Option<String> {
     }
 
     if let Ok(value) = serde_json::from_str::<Value>(trimmed) {
-        for key in ["message", "detail", "error"] {
-            if let Some(detail) = value.get(key).and_then(Value::as_str) {
-                return Some(detail.chars().take(200).collect());
-            }
-        }
+        return nested_error_message(&value).map(|detail| detail.chars().take(200).collect());
     }
 
     let compact = trimmed.split_whitespace().collect::<Vec<_>>().join(" ");
     Some(compact.chars().take(200).collect())
+}
+
+fn nested_error_message(value: &Value) -> Option<&str> {
+    match value {
+        Value::String(message) if !message.trim().is_empty() => Some(message),
+        Value::Object(object) => ["message", "detail", "error", "exception"]
+            .iter()
+            .filter_map(|key| object.get(*key))
+            .find_map(nested_error_message),
+        Value::Array(values) => values.iter().find_map(nested_error_message),
+        _ => None,
+    }
 }
 
 fn collection_items(value: &Value) -> &[Value] {
@@ -360,5 +368,17 @@ mod tests {
     #[test]
     fn configures_bounded_request_timeout() {
         assert_eq!(REQUEST_TIMEOUT, Duration::from_secs(30));
+    }
+
+    #[test]
+    fn extracts_message_from_nested_api_error() {
+        let body = r#"{"detail":{"message":"No Entry Found","error":true}}"#;
+
+        assert_eq!(error_detail(body).as_deref(), Some("No Entry Found"));
+    }
+
+    #[test]
+    fn does_not_expose_unrecognized_json_error_bodies() {
+        assert_eq!(error_detail(r#"{"error":true}"#), None);
     }
 }
