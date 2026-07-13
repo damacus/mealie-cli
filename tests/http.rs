@@ -2,7 +2,11 @@ use mealie_cli::{ErrorCode, run_from};
 use mockito::{Matcher, Server};
 
 fn env(url: &str) -> Vec<(&str, &str)> {
-    vec![("MEALIE_URL", url), ("MEALIE_TOKEN", "secret-token")]
+    vec![
+        ("MEALIE_URL", url),
+        ("MEALIE_TOKEN", "secret-token"),
+        ("USE_INSECURE_HTTP", "yes"),
+    ]
 }
 
 #[test]

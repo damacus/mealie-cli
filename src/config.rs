@@ -27,22 +27,34 @@ impl Config {
     {
         let mut url = None;
         let mut token = None;
+        let mut allow_insecure_http = None;
 
         for (key, value) in env_vars {
             match key.into().as_str() {
                 "MEALIE_URL" => url = Some(value.into()),
                 "MEALIE_TOKEN" => token = Some(value.into()),
+                "USE_INSECURE_HTTP" => allow_insecure_http = Some(value.into()),
                 _ => {}
             }
         }
 
         let base_url = required("MEALIE_URL", url)?;
         let token = required("MEALIE_TOKEN", token)?;
+        let allow_insecure_http = allow_insecure_http
+            .as_deref()
+            .map(str::trim)
+            .is_some_and(|value| value.eq_ignore_ascii_case("yes"));
+        let base_url = base_url.trim_end_matches('/').to_string();
+        let url = reqwest::Url::parse(&base_url)
+            .map_err(|_| AppError::new(ErrorCode::InvalidArgs, "MEALIE_URL must be a valid URL"))?;
+        if url.scheme() != "https" && !(allow_insecure_http && url.scheme() == "http") {
+            return Err(AppError::new(
+                ErrorCode::InvalidArgs,
+                "MEALIE_URL must use HTTPS; set USE_INSECURE_HTTP=yes to allow HTTP",
+            ));
+        }
 
-        Ok(Self {
-            base_url: base_url.trim_end_matches('/').to_string(),
-            token,
-        })
+        Ok(Self { base_url, token })
     }
 
     pub fn endpoint(&self, path: &str) -> String {
@@ -94,5 +106,16 @@ mod tests {
         assert!(debug.contains("https://mealie.example"));
         assert!(debug.contains("[redacted]"));
         assert!(!debug.contains("secret-token"));
+    }
+
+    #[test]
+    fn rejects_http_without_explicit_opt_in() {
+        let error = Config::from_env([
+            ("MEALIE_URL", "http://mealie.example"),
+            ("MEALIE_TOKEN", "token"),
+        ])
+        .expect_err("HTTP should require explicit opt-in");
+
+        assert_eq!(error.code(), ErrorCode::InvalidArgs);
     }
 }
