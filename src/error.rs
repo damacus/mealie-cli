@@ -90,6 +90,9 @@ impl AppError {
         if self.code == ErrorCode::InvalidArgs && self.message.starts_with("error:") {
             return self.message.trim_end().to_string();
         }
+        if self.code == ErrorCode::NotFound {
+            return format!("Error {}", self.message);
+        }
         match self.hint() {
             Some(hint) => format!("Error: {}\nHint: {hint}", self.message),
             None => format!("Error: {}", self.message),

@@ -195,17 +195,39 @@ fn checked_json(response: reqwest::blocking::Response, action: &str) -> Result<V
         return response.json().map_err(AppError::from);
     }
 
-    let detail = response.text().ok().and_then(|body| error_detail(&body));
-    let message = match detail {
-        Some(detail) => format!("{action}: {detail} (HTTP {status})"),
-        None => format!("{action} failed (HTTP {status})"),
-    };
     let code = match status {
         StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN => ErrorCode::Authentication,
         StatusCode::NOT_FOUND => ErrorCode::NotFound,
         _ => ErrorCode::ApiError,
     };
+    let message = if code == ErrorCode::NotFound {
+        not_found_message(action)
+    } else {
+        let detail = response.text().ok().and_then(|body| error_detail(&body));
+        match detail {
+            Some(detail) => format!("{action}: {detail} (HTTP {status})"),
+            None => format!("{action} failed (HTTP {status})"),
+        }
+    };
     Err(AppError::new(code, message))
+}
+
+fn not_found_message(action: &str) -> String {
+    let (verb, resource) = action.split_once(' ').unwrap_or((action, "resource"));
+    let action = match verb {
+        "get" => "getting",
+        "search" => "searching",
+        "list" => "listing",
+        "delete" => "deleting",
+        "create" => "creating",
+        _ => verb,
+    };
+    let mut characters = resource.chars();
+    let resource_name = match characters.next() {
+        Some(first) => format!("{}{}", first.to_uppercase(), characters.as_str()),
+        None => "Resource".to_string(),
+    };
+    format!("{action} {resource}: {resource_name} not found")
 }
 
 fn checked_optional_json(
@@ -445,5 +467,13 @@ mod tests {
     #[test]
     fn does_not_expose_unrecognized_json_error_bodies() {
         assert_eq!(error_detail(r#"{"error":true}"#), None);
+    }
+
+    #[test]
+    fn describes_not_found_errors_without_http_jargon() {
+        assert_eq!(
+            not_found_message("get recipe"),
+            "getting recipe: Recipe not found"
+        );
     }
 }
