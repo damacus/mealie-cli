@@ -144,6 +144,7 @@ fn recipes_get(client: &MealieClient, slug: &str) -> Result<Vec<serde_json::Valu
             ("id", serde_json::json!(recipe.id)),
             ("slug", serde_json::json!(recipe.slug)),
             ("name", serde_json::json!(recipe.name)),
+            ("ingredients", serde_json::json!(recipe.ingredients)),
         ],
     )])
 }

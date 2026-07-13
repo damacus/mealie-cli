@@ -10,7 +10,7 @@ mealie recipes search "pesto chicken" --limit 5
 
 `--limit` accepts values from 1 to 100. `recipe` is a singular alias for `recipes`.
 
-Get one recipe by exact slug:
+Get one recipe and its complete ingredient list by exact slug:
 
 ```bash
 mealie recipes get butter-chicken

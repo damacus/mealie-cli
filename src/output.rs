@@ -88,10 +88,11 @@ fn write_human(presentation: &Presentation, values: &[Value]) -> String {
         Presentation::RecipeDetails => {
             let value = &values[0];
             format!(
-                "Name: {}\nSlug: {}\nID:   {}\n",
+                "Name: {}\nSlug: {}\nID:   {}\n{}",
                 text(value, "name"),
                 text(value, "slug"),
-                text(value, "id")
+                text(value, "id"),
+                write_ingredients(value)
             )
         }
         Presentation::PlanList { from, to } => {
@@ -142,6 +143,46 @@ fn write_human(presentation: &Presentation, values: &[Value]) -> String {
             format!("Deleted meal plan entry {}.\n", text(&values[0], "id"))
         }
     }
+}
+
+fn write_ingredients(recipe: &Value) -> String {
+    let ingredients = recipe
+        .get("ingredients")
+        .and_then(Value::as_array)
+        .map(Vec::as_slice)
+        .unwrap_or_default();
+    if ingredients.is_empty() {
+        return "Ingredients: None listed\n".to_string();
+    }
+
+    let mut output = format!("Ingredients ({}):\n", ingredients.len());
+    for ingredient in ingredients {
+        if let Some(title) = non_empty_text(ingredient, "title") {
+            output.push_str(&format!("{title}:\n"));
+        }
+        if let Some(line) = ingredient_line(ingredient) {
+            output.push_str("- ");
+            output.push_str(&line);
+            output.push('\n');
+        }
+    }
+    output
+}
+
+fn ingredient_line(ingredient: &Value) -> Option<String> {
+    for key in ["original_text", "display"] {
+        if let Some(line) = non_empty_text(ingredient, key) {
+            return Some(line.split_whitespace().collect::<Vec<_>>().join(" "));
+        }
+    }
+
+    let mut parts = Vec::new();
+    for key in ["quantity", "unit_abbreviation", "unit", "food", "note"] {
+        if let Some(part) = non_empty_text(ingredient, key) {
+            parts.push(part);
+        }
+    }
+    (!parts.is_empty()).then(|| parts.join(" "))
 }
 
 fn write_quiet(values: &[Value]) -> String {
