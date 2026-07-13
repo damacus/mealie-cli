@@ -15,6 +15,7 @@ items = [
 		{ name = "Configuration", path = "configuration.md" },
 		{ name = "Commands", path = "commands.md" },
 		{ name = "Output", path = "output.md" },
+		{ name = "Usability improvements", path = "usability-improvements.md" },
 		{ name = "Docker", path = "docker.md" },
 	] },
 ]

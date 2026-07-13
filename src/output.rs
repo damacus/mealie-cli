@@ -4,23 +4,39 @@ use crate::{AppError, ErrorCode};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OutputMode {
+    Human,
     Json,
     Ndjson,
     Quiet,
 }
 
 impl OutputMode {
-    pub fn from_flags(json: bool, _ndjson: bool, quiet: bool) -> Result<Self, AppError> {
+    pub fn from_flags(json: bool, ndjson: bool, quiet: bool) -> Result<Self, AppError> {
         if json {
             return Ok(Self::Json);
         }
-
+        if ndjson {
+            return Ok(Self::Ndjson);
+        }
         if quiet {
             return Ok(Self::Quiet);
         }
-
-        Ok(Self::Ndjson)
+        Ok(Self::Human)
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Presentation {
+    RecipeSearch { query: String },
+    RecipeDetails,
+    PlanList { from: String, to: String },
+    PlanSet,
+    PlanDelete,
+}
+
+pub struct CommandOutput {
+    pub presentation: Presentation,
+    pub values: Vec<Value>,
 }
 
 pub fn record<const N: usize>(record_type: &str, fields: [(&str, Value); N]) -> Value {
@@ -35,14 +51,15 @@ pub fn record<const N: usize>(record_type: &str, fields: [(&str, Value); N]) -> 
     Value::Object(object)
 }
 
-pub fn write_output(mode: OutputMode, values: Vec<Value>) -> Result<String, AppError> {
+pub fn write_output(mode: OutputMode, output: CommandOutput) -> Result<String, AppError> {
     match mode {
-        OutputMode::Json => serde_json::to_string_pretty(&values)
+        OutputMode::Human => Ok(write_human(&output.presentation, &output.values)),
+        OutputMode::Json => serde_json::to_string_pretty(&output.values)
             .map(|json| format!("{json}\n"))
             .map_err(|error| AppError::new(ErrorCode::ApiError, error.to_string())),
         OutputMode::Ndjson => {
             let mut lines = String::new();
-            for value in values {
+            for value in output.values {
                 let line = serde_json::to_string(&value)
                     .map_err(|error| AppError::new(ErrorCode::ApiError, error.to_string()))?;
                 lines.push_str(&line);
@@ -50,36 +67,164 @@ pub fn write_output(mode: OutputMode, values: Vec<Value>) -> Result<String, AppE
             }
             Ok(lines)
         }
-        OutputMode::Quiet => {
-            let mut output = String::new();
-            for value in values.iter().filter(|value| {
-                matches!(
-                    value.get("type").and_then(Value::as_str),
-                    Some("plan_created" | "plan_deleted")
-                )
-            }) {
-                match value.get("id") {
-                    Some(Value::Number(number)) => {
-                        if !output.is_empty() {
-                            output.push('\n');
-                        }
-                        output.push_str(&number.to_string());
-                    }
-                    Some(Value::String(text)) => {
-                        if !output.is_empty() {
-                            output.push('\n');
-                        }
-                        output.push_str(text);
-                    }
-                    _ => {}
-                }
-            }
+        OutputMode::Quiet => Ok(write_quiet(&output.values)),
+    }
+}
 
-            if !output.is_empty() {
-                output.push('\n');
+fn write_human(presentation: &Presentation, values: &[Value]) -> String {
+    match presentation {
+        Presentation::RecipeSearch { query } => {
+            if is_empty(values) {
+                return format!("No recipes found for \"{query}\".\n");
             }
-
-            Ok(output)
+            table(
+                &["NAME", "SLUG", "ID"],
+                values
+                    .iter()
+                    .map(|value| vec![text(value, "name"), text(value, "slug"), text(value, "id")])
+                    .collect(),
+            )
+        }
+        Presentation::RecipeDetails => {
+            let value = &values[0];
+            format!(
+                "Name: {}\nSlug: {}\nID:   {}\n",
+                text(value, "name"),
+                text(value, "slug"),
+                text(value, "id")
+            )
+        }
+        Presentation::PlanList { from, to } => {
+            if is_empty(values) {
+                return format!("No meal plan entries found from {from} to {to}.\n");
+            }
+            table(
+                &["DATE", "MEAL", "TITLE", "RECIPE", "ID"],
+                values
+                    .iter()
+                    .map(|value| {
+                        vec![
+                            text(value, "date"),
+                            text(value, "meal"),
+                            text(value, "title"),
+                            text(value, "recipe"),
+                            text(value, "id"),
+                        ]
+                    })
+                    .collect(),
+            )
+        }
+        Presentation::PlanSet => {
+            let created = values
+                .iter()
+                .find(|value| value.get("type").and_then(Value::as_str) == Some("plan_created"))
+                .expect("plan set always creates an entry");
+            let verb = if values
+                .iter()
+                .any(|value| value.get("type").and_then(Value::as_str) == Some("plan_deleted"))
+            {
+                "Replaced"
+            } else {
+                "Created"
+            };
+            let label = non_empty_text(created, "recipe")
+                .or_else(|| non_empty_text(created, "title"))
+                .unwrap_or_else(|| "meal plan entry".to_string());
+            format!(
+                "{verb} {} on {} with {} (ID {}).\n",
+                text(created, "meal"),
+                text(created, "date"),
+                label,
+                text(created, "id")
+            )
+        }
+        Presentation::PlanDelete => {
+            format!("Deleted meal plan entry {}.\n", text(&values[0], "id"))
         }
     }
+}
+
+fn write_quiet(values: &[Value]) -> String {
+    let ids: Vec<_> = values
+        .iter()
+        .filter(|value| {
+            matches!(
+                value.get("type").and_then(Value::as_str),
+                Some("plan_created" | "plan_deleted")
+            )
+        })
+        .filter_map(|value| value.get("id"))
+        .filter_map(value_text)
+        .collect();
+
+    if ids.is_empty() {
+        String::new()
+    } else {
+        format!("{}\n", ids.join("\n"))
+    }
+}
+
+fn is_empty(values: &[Value]) -> bool {
+    values.len() == 1 && values[0].get("type").and_then(Value::as_str) == Some("empty")
+}
+
+fn text(value: &Value, key: &str) -> String {
+    value
+        .get(key)
+        .and_then(value_text)
+        .unwrap_or_else(|| "-".to_string())
+}
+
+fn non_empty_text(value: &Value, key: &str) -> Option<String> {
+    let value = value.get(key).and_then(value_text)?;
+    (!value.is_empty()).then_some(value)
+}
+
+fn value_text(value: &Value) -> Option<String> {
+    match value {
+        Value::String(value) => Some(value.clone()),
+        Value::Number(value) => Some(value.to_string()),
+        Value::Bool(value) => Some(value.to_string()),
+        Value::Null => None,
+        _ => Some(value.to_string()),
+    }
+}
+
+fn table(headers: &[&str], rows: Vec<Vec<String>>) -> String {
+    let mut widths: Vec<usize> = headers.iter().map(|header| header.len()).collect();
+    for row in &rows {
+        for (index, cell) in row.iter().enumerate() {
+            widths[index] = widths[index].max(cell.chars().count());
+        }
+    }
+
+    let mut output = String::new();
+    append_row(
+        &mut output,
+        &headers
+            .iter()
+            .map(|value| (*value).to_string())
+            .collect::<Vec<_>>(),
+        &widths,
+    );
+    for row in rows {
+        append_row(&mut output, &row, &widths);
+    }
+    output
+}
+
+fn append_row(output: &mut String, row: &[String], widths: &[usize]) {
+    for (index, cell) in row.iter().enumerate() {
+        if index > 0 {
+            output.push_str("  ");
+        }
+        output.push_str(cell);
+        if index + 1 < row.len() {
+            output.extend(std::iter::repeat_n(
+                ' ',
+                widths[index] - cell.chars().count(),
+            ));
+        }
+    }
+    output.push('\n');
 }

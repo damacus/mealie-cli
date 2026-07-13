@@ -14,7 +14,7 @@ use cli::{Cli, Command, PlanCommand, RecipesCommand};
 use client::{MealieClient, PlanCreateRequest};
 use config::Config;
 use meal_type::MealType;
-use output::{OutputMode, record, write_output};
+use output::{CommandOutput, OutputMode, Presentation, record, write_output};
 
 pub fn run_from_env() -> Result<String, AppError> {
     run_from(env::args_os(), env::vars())
@@ -43,36 +43,56 @@ where
     let mode = OutputMode::from_flags(cli.json, cli.ndjson, cli.quiet)?;
     let config = Config::from_env(env_vars)?;
     let client = MealieClient::new(config)?;
-    let values = execute(&client, cli.command)?;
+    let output = execute(&client, cli.command)?;
 
-    write_output(mode, values)
+    write_output(mode, output)
 }
 
-fn execute(client: &MealieClient, command: Command) -> Result<Vec<serde_json::Value>, AppError> {
+fn execute(client: &MealieClient, command: Command) -> Result<CommandOutput, AppError> {
     match command {
         Command::Recipes(recipes) => match recipes {
-            RecipesCommand::Search { query, limit } => recipes_search(client, &query, limit),
-            RecipesCommand::Get { slug } => recipes_get(client, &slug),
+            RecipesCommand::Search { query, limit } => Ok(CommandOutput {
+                presentation: Presentation::RecipeSearch {
+                    query: query.clone(),
+                },
+                values: recipes_search(client, &query, limit)?,
+            }),
+            RecipesCommand::Get { slug } => Ok(CommandOutput {
+                presentation: Presentation::RecipeDetails,
+                values: recipes_get(client, &slug)?,
+            }),
         },
         Command::Plan(plan) => match plan {
             PlanCommand::List {
                 from,
                 to,
                 meal_type,
-            } => plan_list(client, &from, &to, meal_type.as_deref()),
+            } => Ok(CommandOutput {
+                presentation: Presentation::PlanList {
+                    from: from.clone(),
+                    to: to.clone(),
+                },
+                values: plan_list(client, &from, &to, meal_type.as_ref())?,
+            }),
             PlanCommand::Set(cli::PlanSetArgs {
                 date,
                 meal_type,
                 title,
                 recipe,
-            }) => plan_set(
-                client,
-                &date,
-                &meal_type,
-                title.as_deref(),
-                recipe.as_deref(),
-            ),
-            PlanCommand::Delete { id } => plan_delete(client, id),
+            }) => Ok(CommandOutput {
+                presentation: Presentation::PlanSet,
+                values: plan_set(
+                    client,
+                    &date,
+                    meal_type,
+                    title.as_deref(),
+                    recipe.as_deref(),
+                )?,
+            }),
+            PlanCommand::Delete { id } => Ok(CommandOutput {
+                presentation: Presentation::PlanDelete,
+                values: plan_delete(client, id)?,
+            }),
         },
     }
 }
@@ -82,6 +102,12 @@ fn recipes_search(
     query: &str,
     limit: u32,
 ) -> Result<Vec<serde_json::Value>, AppError> {
+    if query.trim().is_empty() {
+        return Err(AppError::new(
+            ErrorCode::InvalidArgs,
+            "recipe search query cannot be empty",
+        ));
+    }
     let recipes = client.search_recipes(query, limit)?;
 
     if recipes.is_empty() {
@@ -126,11 +152,16 @@ fn plan_list(
     client: &MealieClient,
     from: &str,
     to: &str,
-    meal_type: Option<&str>,
+    meal_type: Option<&MealType>,
 ) -> Result<Vec<serde_json::Value>, AppError> {
-    validate_date(from)?;
-    validate_date(to)?;
-    let meal_type = meal_type.map(MealType::parse).transpose()?;
+    let from_date = validate_date("--from", from)?;
+    let to_date = validate_date("--to", to)?;
+    if from_date > to_date {
+        return Err(AppError::new(
+            ErrorCode::InvalidArgs,
+            format!("--from ({from}) must be on or before --to ({to})"),
+        ));
+    }
     let entries = client.list_plan(from, to)?;
     let records: Vec<_> = entries
         .into_iter()
@@ -171,12 +202,11 @@ fn plan_list(
 fn plan_set(
     client: &MealieClient,
     date: &str,
-    meal_type: &str,
+    meal_type: MealType,
     title: Option<&str>,
     recipe_slug: Option<&str>,
 ) -> Result<Vec<serde_json::Value>, AppError> {
-    validate_date(date)?;
-    let meal_type = MealType::parse(meal_type)?;
+    validate_date("--date", date)?;
 
     match (title, recipe_slug) {
         (Some(_), Some(_)) | (None, None) => {
@@ -247,10 +277,13 @@ fn plan_delete(client: &MealieClient, id: i64) -> Result<Vec<serde_json::Value>,
     )])
 }
 
-fn validate_date(value: &str) -> Result<(), AppError> {
-    chrono::NaiveDate::parse_from_str(value, "%Y-%m-%d")
-        .map(|_| ())
-        .map_err(|_| AppError::new(ErrorCode::InvalidArgs, "date must use YYYY-MM-DD"))
+fn validate_date(flag: &str, value: &str) -> Result<chrono::NaiveDate, AppError> {
+    chrono::NaiveDate::parse_from_str(value, "%Y-%m-%d").map_err(|_| {
+        AppError::new(
+            ErrorCode::InvalidArgs,
+            format!("{flag} must use YYYY-MM-DD (got \"{value}\")"),
+        )
+    })
 }
 
 #[cfg(test)]
@@ -314,8 +347,16 @@ mod tests {
 
     #[test]
     fn formats_pretty_json() {
-        let values = vec![record("empty", [("resource", serde_json::json!("recipe"))])];
-        let output = write_output(OutputMode::Json, values).expect("json output");
+        let output = write_output(
+            OutputMode::Json,
+            CommandOutput {
+                presentation: Presentation::RecipeSearch {
+                    query: "missing".to_string(),
+                },
+                values: vec![record("empty", [("resource", serde_json::json!("recipe"))])],
+            },
+        )
+        .expect("json output");
 
         assert!(output.starts_with("[\n"));
         assert!(output.contains("\"ok\": true"));
@@ -328,7 +369,14 @@ mod tests {
             record("plan_created", [("id", serde_json::json!(11))]),
             record("empty", [("resource", serde_json::json!("recipe"))]),
         ];
-        let output = write_output(OutputMode::Quiet, values).expect("quiet output");
+        let output = write_output(
+            OutputMode::Quiet,
+            CommandOutput {
+                presentation: Presentation::PlanSet,
+                values,
+            },
+        )
+        .expect("quiet output");
 
         assert_eq!(output, "10\n11\n");
     }
