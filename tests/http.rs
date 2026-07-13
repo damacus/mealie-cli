@@ -5,7 +5,7 @@ fn env(url: &str) -> Vec<(&str, &str)> {
     vec![
         ("MEALIE_URL", url),
         ("MEALIE_TOKEN", "secret-token"),
-        ("MEALIE_ALLOW_INSECURE_HTTP", "true"),
+        ("USE_INSECURE_HTTP", "yes"),
     ]
 }
 

@@ -33,7 +33,7 @@ impl Config {
             match key.into().as_str() {
                 "MEALIE_URL" => url = Some(value.into()),
                 "MEALIE_TOKEN" => token = Some(value.into()),
-                "MEALIE_ALLOW_INSECURE_HTTP" => allow_insecure_http = Some(value.into()),
+                "USE_INSECURE_HTTP" => allow_insecure_http = Some(value.into()),
                 _ => {}
             }
         }
@@ -43,14 +43,14 @@ impl Config {
         let allow_insecure_http = allow_insecure_http
             .as_deref()
             .map(str::trim)
-            .is_some_and(|value| value.eq_ignore_ascii_case("true"));
+            .is_some_and(|value| value.eq_ignore_ascii_case("yes"));
         let base_url = base_url.trim_end_matches('/').to_string();
         let url = reqwest::Url::parse(&base_url)
             .map_err(|_| AppError::new(ErrorCode::InvalidArgs, "MEALIE_URL must be a valid URL"))?;
         if url.scheme() != "https" && !(allow_insecure_http && url.scheme() == "http") {
             return Err(AppError::new(
                 ErrorCode::InvalidArgs,
-                "MEALIE_URL must use HTTPS; set MEALIE_ALLOW_INSECURE_HTTP=true to allow HTTP",
+                "MEALIE_URL must use HTTPS; set USE_INSECURE_HTTP=yes to allow HTTP",
             ));
         }
 

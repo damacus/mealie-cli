@@ -32,7 +32,7 @@ HTTPS is required by default. For a deliberately insecure local or isolated
 network, explicitly opt in to HTTP:
 
 ```text
-MEALIE_ALLOW_INSECURE_HTTP=true
+USE_INSECURE_HTTP=yes
 ```
 
 This override allows the bearer token to travel without transport encryption
