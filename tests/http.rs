@@ -119,7 +119,51 @@ fn gets_recipe_as_human_readable_details_by_default() {
 
     assert_eq!(
         output,
-        "Name: Pesto Chicken\nSlug: pesto-chicken\nID:   r1\n"
+        "Name: Pesto Chicken\nSlug: pesto-chicken\nID:   r1\nIngredients: None listed\n"
+    );
+}
+
+#[test]
+fn gets_all_recipe_ingredients() {
+    let mut server = Server::new();
+    let _mock = server
+        .mock("GET", "/api/recipes/chicken-casserole")
+        .with_status(200)
+        .with_body(
+            r#"{
+                "id":"r1",
+                "slug":"chicken-casserole",
+                "name":"Chicken Casserole",
+                "recipeIngredient":[
+                    {
+                        "quantity":250,
+                        "unit":{"name":"gram","abbreviation":"g"},
+                        "food":{"name":"bacon"},
+                        "note":"snipped",
+                        "display":"250 grams bacon snipped",
+                        "originalText":"250g dry cured bacon, snipped"
+                    },
+                    {
+                        "quantity":8,
+                        "unit":null,
+                        "food":{"name":"chicken thighs"},
+                        "display":"8 chicken thighs",
+                        "originalText":"8 skinless chicken thighs, bone in"
+                    }
+                ]
+            }"#,
+        )
+        .create();
+
+    let output = run_from(
+        ["mealie", "recipe", "get", "chicken-casserole"],
+        env(&server.url()),
+    )
+    .expect("recipe ingredients");
+
+    assert_eq!(
+        output,
+        "Name: Chicken Casserole\nSlug: chicken-casserole\nID:   r1\nIngredients (2):\n- 250g dry cured bacon, snipped\n- 8 skinless chicken thighs, bone in\n"
     );
 }
 
@@ -140,7 +184,7 @@ fn ndjson_output_remains_available_explicitly() {
 
     assert_eq!(
         output,
-        "{\"id\":\"r1\",\"name\":\"Pesto Chicken\",\"ok\":true,\"slug\":\"pesto-chicken\",\"type\":\"recipe\"}\n"
+        "{\"id\":\"r1\",\"ingredients\":[],\"name\":\"Pesto Chicken\",\"ok\":true,\"slug\":\"pesto-chicken\",\"type\":\"recipe\"}\n"
     );
 }
 

@@ -14,11 +14,25 @@ pub struct MealieClient {
     http: Client,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct Recipe {
     pub id: String,
     pub slug: String,
     pub name: String,
+    pub ingredients: Vec<Ingredient>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct Ingredient {
+    pub quantity: Option<f64>,
+    pub unit: Option<String>,
+    pub unit_abbreviation: Option<String>,
+    pub food: Option<String>,
+    pub note: Option<String>,
+    pub display: Option<String>,
+    pub original_text: Option<String>,
+    pub title: Option<String>,
+    pub reference_id: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -251,7 +265,38 @@ fn recipe_from_value(value: &Value) -> Result<Recipe, AppError> {
         id: required_string(value, &["id", "recipeId"])?,
         slug: required_string(value, &["slug"])?,
         name: required_string(value, &["name"])?,
+        ingredients: value
+            .get("recipeIngredient")
+            .and_then(Value::as_array)
+            .map(|ingredients| {
+                ingredients
+                    .iter()
+                    .filter_map(ingredient_from_value)
+                    .collect()
+            })
+            .unwrap_or_default(),
     })
+}
+
+fn ingredient_from_value(value: &Value) -> Option<Ingredient> {
+    let ingredient = Ingredient {
+        quantity: optional_f64(value, &["quantity"]),
+        unit: nested_optional_string(value, "unit", &["name"]),
+        unit_abbreviation: nested_optional_string(value, "unit", &["abbreviation"]),
+        food: nested_optional_string(value, "food", &["name"]),
+        note: optional_non_empty_string(value, &["note"]),
+        display: optional_non_empty_string(value, &["display"]),
+        original_text: optional_non_empty_string(value, &["originalText"]),
+        title: optional_non_empty_string(value, &["title"]),
+        reference_id: optional_non_empty_string(value, &["referenceId"]),
+    };
+
+    (ingredient.quantity.is_some()
+        || ingredient.food.is_some()
+        || ingredient.display.is_some()
+        || ingredient.original_text.is_some()
+        || ingredient.title.is_some())
+    .then_some(ingredient)
 }
 
 fn plan_entry_from_value(value: &Value) -> Result<PlanEntry, AppError> {
@@ -328,6 +373,26 @@ fn optional_string(value: &Value, keys: &[&str]) -> Option<String> {
         .find_map(|value| match value {
             Value::String(text) => Some(text.clone()),
             Value::Number(number) => Some(number.to_string()),
+            _ => None,
+        })
+}
+
+fn optional_non_empty_string(value: &Value, keys: &[&str]) -> Option<String> {
+    optional_string(value, keys).and_then(|text| (!text.trim().is_empty()).then_some(text))
+}
+
+fn nested_optional_string(value: &Value, key: &str, keys: &[&str]) -> Option<String> {
+    value
+        .get(key)
+        .and_then(|nested| optional_non_empty_string(nested, keys))
+}
+
+fn optional_f64(value: &Value, keys: &[&str]) -> Option<f64> {
+    keys.iter()
+        .filter_map(|key| value.get(*key))
+        .find_map(|value| match value {
+            Value::Number(number) => number.as_f64(),
+            Value::String(text) => text.parse().ok(),
             _ => None,
         })
 }

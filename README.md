@@ -94,7 +94,7 @@ Search recipes:
 mealie recipes search "pesto chicken" --limit 5
 ```
 
-Get a recipe by exact slug:
+Get a recipe and its complete ingredient list by exact slug:
 
 ```text
 mealie recipes get butter-chicken
