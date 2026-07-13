@@ -201,10 +201,7 @@ fn maps_not_found() {
         run_from(["mealie", "recipes", "get", "missing"], env(&server.url())).expect_err("404");
 
     assert_eq!(error.code(), ErrorCode::NotFound);
-    assert_eq!(
-        error.to_human(),
-        "Error: get recipe: No Entry Found (HTTP 404 Not Found)"
-    );
+    assert_eq!(error.to_human(), "Error getting recipe: Recipe not found");
 }
 
 #[test]
