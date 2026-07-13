@@ -93,6 +93,7 @@ impl MealieClient {
             .bearer_auth(&self.config.token)
             .query(&[("search", query), ("perPage", &limit.to_string())])
             .send()
+            .map_err(AppError::from)
             .and_then(|response| checked_json(response, "search recipes"))?;
 
         collection_items(&value)
@@ -107,6 +108,7 @@ impl MealieClient {
             .get(self.config.endpoint(&format!("/api/recipes/{slug}")))
             .bearer_auth(&self.config.token)
             .send()
+            .map_err(AppError::from)
             .and_then(|response| checked_json(response, "get recipe"))?;
 
         recipe_from_value(&value)
@@ -125,6 +127,7 @@ impl MealieClient {
                 ("orderDirection", "asc"),
             ])
             .send()
+            .map_err(AppError::from)
             .and_then(|response| checked_json(response, "list meal plans"))?;
 
         collection_items(&value)
@@ -142,6 +145,7 @@ impl MealieClient {
             )
             .bearer_auth(&self.config.token)
             .send()
+            .map_err(AppError::from)
             .and_then(|response| checked_optional_json(response, "delete meal plan"))?;
 
         Ok(value
@@ -164,42 +168,60 @@ impl MealieClient {
             .bearer_auth(&self.config.token)
             .json(request)
             .send()
+            .map_err(AppError::from)
             .and_then(|response| checked_json(response, "create meal plan"))?;
 
         plan_entry_from_value(&value)
     }
 }
 
-fn checked_json(
-    response: reqwest::blocking::Response,
-    action: &str,
-) -> Result<Value, reqwest::Error> {
+fn checked_json(response: reqwest::blocking::Response, action: &str) -> Result<Value, AppError> {
     let status = response.status();
-    if status == StatusCode::NOT_FOUND {
-        return Ok(
-            serde_json::json!({ "__error": "not_found", "message": format!("{action} returned 404") }),
-        );
+    if status.is_success() {
+        return response.json().map_err(AppError::from);
     }
 
-    if !status.is_success() {
-        return Ok(
-            serde_json::json!({ "__error": "api_error", "message": format!("{action} returned HTTP {status}") }),
-        );
-    }
-
-    response.json()
+    let detail = response.text().ok().and_then(|body| error_detail(&body));
+    let message = match detail {
+        Some(detail) => format!("{action} failed with HTTP {status}: {detail}"),
+        None => format!("{action} failed with HTTP {status}"),
+    };
+    let code = match status {
+        StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN => ErrorCode::Authentication,
+        StatusCode::NOT_FOUND => ErrorCode::NotFound,
+        _ => ErrorCode::ApiError,
+    };
+    Err(AppError::new(code, message))
 }
 
 fn checked_optional_json(
     response: reqwest::blocking::Response,
     action: &str,
-) -> Result<Option<Value>, reqwest::Error> {
+) -> Result<Option<Value>, AppError> {
     let status = response.status();
     if status == StatusCode::NO_CONTENT {
         return Ok(None);
     }
 
     checked_json(response, action).map(Some)
+}
+
+fn error_detail(body: &str) -> Option<String> {
+    let trimmed = body.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+
+    if let Ok(value) = serde_json::from_str::<Value>(trimmed) {
+        for key in ["message", "detail", "error"] {
+            if let Some(detail) = value.get(key).and_then(Value::as_str) {
+                return Some(detail.chars().take(200).collect());
+            }
+        }
+    }
+
+    let compact = trimmed.split_whitespace().collect::<Vec<_>>().join(" ");
+    Some(compact.chars().take(200).collect())
 }
 
 fn collection_items(value: &Value) -> &[Value] {

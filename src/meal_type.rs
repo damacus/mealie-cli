@@ -1,22 +1,26 @@
-use crate::{AppError, ErrorCode};
+use clap::ValueEnum;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct MealType(String);
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub enum MealType {
+    Breakfast,
+    Lunch,
+    Dinner,
+    Side,
+    Snack,
+    Drink,
+    Dessert,
+}
 
 impl MealType {
-    pub fn parse(value: &str) -> Result<Self, AppError> {
-        match value {
-            "breakfast" | "lunch" | "dinner" | "side" | "snack" | "drink" | "dessert" => {
-                Ok(Self(value.to_string()))
-            }
-            _ => Err(AppError::new(
-                ErrorCode::InvalidArgs,
-                format!("invalid meal type: {value}"),
-            )),
-        }
-    }
-
     pub fn as_str(&self) -> &str {
-        &self.0
+        match self {
+            Self::Breakfast => "breakfast",
+            Self::Lunch => "lunch",
+            Self::Dinner => "dinner",
+            Self::Side => "side",
+            Self::Snack => "snack",
+            Self::Drink => "drink",
+            Self::Dessert => "dessert",
+        }
     }
 }

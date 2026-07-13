@@ -8,6 +8,7 @@ use thiserror::Error;
 pub enum ErrorCode {
     MissingConfig,
     InvalidArgs,
+    Authentication,
     NotFound,
     Ambiguous,
     ApiError,
@@ -19,6 +20,7 @@ impl ErrorCode {
         match self {
             Self::MissingConfig => "missing_config",
             Self::InvalidArgs => "invalid_args",
+            Self::Authentication => "authentication",
             Self::NotFound => "not_found",
             Self::Ambiguous => "ambiguous",
             Self::ApiError => "api_error",
@@ -39,6 +41,8 @@ struct ErrorEnvelope<'a> {
     ok: bool,
     error: &'a str,
     message: &'a str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    hint: Option<&'a str>,
 }
 
 impl AppError {
@@ -57,11 +61,47 @@ impl AppError {
         self.code
     }
 
+    pub fn hint(&self) -> Option<&'static str> {
+        match self.code {
+            ErrorCode::MissingConfig => {
+                Some("Set MEALIE_URL and MEALIE_TOKEN, then run the command again.")
+            }
+            ErrorCode::Authentication => {
+                Some("Check MEALIE_TOKEN and confirm it has access to this Mealie instance.")
+            }
+            ErrorCode::NetworkError => {
+                Some("Check MEALIE_URL and confirm the Mealie server is reachable.")
+            }
+            _ => None,
+        }
+    }
+
+    pub fn exit_code(&self) -> u8 {
+        match self.code {
+            ErrorCode::InvalidArgs | ErrorCode::MissingConfig => 2,
+            ErrorCode::NotFound => 3,
+            ErrorCode::Authentication => 4,
+            ErrorCode::NetworkError => 5,
+            ErrorCode::Ambiguous | ErrorCode::ApiError => 1,
+        }
+    }
+
+    pub fn to_human(&self) -> String {
+        if self.code == ErrorCode::InvalidArgs && self.message.starts_with("error:") {
+            return self.message.trim_end().to_string();
+        }
+        match self.hint() {
+            Some(hint) => format!("Error: {}\nHint: {hint}", self.message),
+            None => format!("Error: {}", self.message),
+        }
+    }
+
     pub fn to_json_line(&self) -> String {
         let envelope = ErrorEnvelope {
             ok: false,
             error: self.code.as_str(),
             message: &self.message,
+            hint: self.hint(),
         };
 
         serde_json::to_string(&envelope).unwrap_or_else(|_| {

@@ -2,7 +2,7 @@
 name = "mealie-cli"
 version = "0.1.2"
 edition = "2024"
-description = "Machine-readable CLI for the Mealie REST API"
+description = "Human-friendly and scriptable CLI for the Mealie REST API"
 repository = "https://github.com/damacus/mealie-cli"
 license = "MIT"
 readme = "README.md"

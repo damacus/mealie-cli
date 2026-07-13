@@ -38,7 +38,7 @@ fn searches_recipes() {
 
     assert_eq!(
         output,
-        "{\"id\":\"r1\",\"name\":\"Pesto Chicken\",\"ok\":true,\"slug\":\"pesto-chicken\",\"type\":\"recipe\"}\n"
+        "NAME           SLUG           ID\nPesto Chicken  pesto-chicken  r1\n"
     );
 }
 
@@ -58,10 +58,7 @@ fn searches_recipes_from_data_wrapper() {
     let output = run_from(["mealie", "recipes", "search", "pesto"], env(&server.url()))
         .expect("search output");
 
-    assert_eq!(
-        output,
-        "{\"id\":\"r1\",\"name\":\"Pesto\",\"ok\":true,\"slug\":\"pesto\",\"type\":\"recipe\"}\n"
-    );
+    assert_eq!(output, "NAME   SLUG   ID\nPesto  pesto  r1\n");
 }
 
 #[test]
@@ -83,10 +80,7 @@ fn search_empty_outputs_empty_record() {
     )
     .expect("empty search output");
 
-    assert_eq!(
-        output,
-        "{\"ok\":true,\"query\":\"missing\",\"resource\":\"recipe\",\"type\":\"empty\"}\n"
-    );
+    assert_eq!(output, "No recipes found for \"missing\".\n");
 }
 
 #[test]
@@ -106,6 +100,48 @@ fn gets_recipe() {
 
     assert!(output.contains("\"type\": \"recipe\""));
     assert!(output.contains("\"slug\": \"pesto-chicken\""));
+}
+
+#[test]
+fn gets_recipe_as_human_readable_details_by_default() {
+    let mut server = Server::new();
+    let _mock = server
+        .mock("GET", "/api/recipes/pesto-chicken")
+        .with_status(200)
+        .with_body(r#"{"id":"r1","slug":"pesto-chicken","name":"Pesto Chicken"}"#)
+        .create();
+
+    let output = run_from(
+        ["mealie", "recipes", "get", "pesto-chicken"],
+        env(&server.url()),
+    )
+    .expect("recipe details");
+
+    assert_eq!(
+        output,
+        "Name: Pesto Chicken\nSlug: pesto-chicken\nID:   r1\n"
+    );
+}
+
+#[test]
+fn ndjson_output_remains_available_explicitly() {
+    let mut server = Server::new();
+    let _mock = server
+        .mock("GET", "/api/recipes/pesto-chicken")
+        .with_status(200)
+        .with_body(r#"{"id":"r1","slug":"pesto-chicken","name":"Pesto Chicken"}"#)
+        .create();
+
+    let output = run_from(
+        ["mealie", "--ndjson", "recipes", "get", "pesto-chicken"],
+        env(&server.url()),
+    )
+    .expect("NDJSON recipe");
+
+    assert_eq!(
+        output,
+        "{\"id\":\"r1\",\"name\":\"Pesto Chicken\",\"ok\":true,\"slug\":\"pesto-chicken\",\"type\":\"recipe\"}\n"
+    );
 }
 
 #[test]
@@ -159,9 +195,8 @@ fn lists_plan_with_type_filter() {
     )
     .expect("plan list");
 
-    assert!(output.contains("\"id\":2"));
-    assert!(!output.contains("\"id\":1"));
-    assert!(output.contains("\"recipe\":\"Pasta\""));
+    assert!(output.contains("2026-05-13  dinner  Pasta  Pasta   2"));
+    assert!(!output.contains("breakfast"));
 }
 
 #[test]
@@ -200,7 +235,37 @@ fn lists_plan_from_top_level_array() {
 
     assert_eq!(
         output,
-        "{\"date\":\"2026-05-13\",\"id\":1,\"meal\":\"dinner\",\"ok\":true,\"recipe\":null,\"recipeId\":null,\"title\":\"Pasta\",\"type\":\"plan_entry\"}\n"
+        "DATE        MEAL    TITLE  RECIPE  ID\n2026-05-13  dinner  Pasta  -       1\n"
+    );
+}
+
+#[test]
+fn empty_plan_list_explains_the_requested_range() {
+    let mut server = Server::new();
+    let _mock = server
+        .mock("GET", "/api/households/mealplans")
+        .match_query(Matcher::Any)
+        .with_status(200)
+        .with_body(r#"{"items":[]}"#)
+        .create();
+
+    let output = run_from(
+        [
+            "mealie",
+            "plan",
+            "list",
+            "--from",
+            "2026-05-13",
+            "--to",
+            "2026-05-16",
+        ],
+        env(&server.url()),
+    )
+    .expect("empty plan list");
+
+    assert_eq!(
+        output,
+        "No meal plan entries found from 2026-05-13 to 2026-05-16.\n"
     );
 }
 
@@ -250,10 +315,10 @@ fn sets_title_replacement() {
     )
     .expect("plan set");
 
-    assert!(output.contains("\"type\":\"plan_deleted\""));
-    assert!(output.contains("\"id\":10"));
-    assert!(output.contains("\"type\":\"plan_created\""));
-    assert!(output.contains("\"id\":11"));
+    assert_eq!(
+        output,
+        "Replaced dinner on 2026-05-13 with Bolognaise (ID 11).\n"
+    );
 }
 
 #[test]
@@ -266,6 +331,13 @@ fn sets_recipe_replacement() {
         .create();
     let _list = server
         .mock("GET", "/api/households/mealplans")
+        .match_query(Matcher::AllOf(vec![
+            Matcher::UrlEncoded("start_date".into(), "2026-05-16".into()),
+            Matcher::UrlEncoded("end_date".into(), "2026-05-16".into()),
+            Matcher::UrlEncoded("perPage".into(), "100".into()),
+            Matcher::UrlEncoded("orderBy".into(), "date".into()),
+            Matcher::UrlEncoded("orderDirection".into(), "asc".into()),
+        ]))
         .with_status(200)
         .with_body(r#"{"items":[]}"#)
         .create();
@@ -296,9 +368,10 @@ fn sets_recipe_replacement() {
     )
     .expect("recipe plan set");
 
-    assert!(output.contains("\"type\":\"plan_created\""));
-    assert!(output.contains("\"recipeId\":\"r2\""));
-    assert!(output.contains("\"recipe\":\"Pesto Chicken\""));
+    assert_eq!(
+        output,
+        "Created dinner on 2026-05-16 with Pesto Chicken (ID 12).\n"
+    );
 }
 
 #[test]
@@ -319,11 +392,29 @@ fn deletes_plan_with_no_content_response() {
 }
 
 #[test]
+fn delete_confirms_which_plan_entry_was_removed() {
+    let mut server = Server::new();
+    let _delete = server
+        .mock("DELETE", "/api/households/mealplans/123")
+        .with_status(204)
+        .create();
+
+    let output = run_from(
+        ["mealie", "plan", "delete", "--id", "123"],
+        env(&server.url()),
+    )
+    .expect("delete output");
+
+    assert_eq!(output, "Deleted meal plan entry 123.\n");
+}
+
+#[test]
 fn maps_api_error() {
     let mut server = Server::new();
     let _mock = server
         .mock("GET", "/api/recipes/pesto-chicken")
         .with_status(500)
+        .with_body(r#"{"message":"database unavailable"}"#)
         .create();
 
     let error = run_from(
@@ -333,4 +424,74 @@ fn maps_api_error() {
     .expect_err("api error");
 
     assert_eq!(error.code(), ErrorCode::ApiError);
+    assert_eq!(
+        error.to_string(),
+        "get recipe failed with HTTP 500 Internal Server Error: database unavailable"
+    );
+}
+
+#[test]
+fn maps_authentication_error_with_hint() {
+    let mut server = Server::new();
+    let _mock = server
+        .mock("GET", "/api/recipes/pesto-chicken")
+        .with_status(401)
+        .with_body(r#"{"detail":"invalid token"}"#)
+        .create();
+
+    let error = run_from(
+        ["mealie", "recipes", "get", "pesto-chicken"],
+        env(&server.url()),
+    )
+    .expect_err("authentication error");
+
+    assert_eq!(error.code(), ErrorCode::Authentication);
+    assert_eq!(error.exit_code(), 4);
+    assert!(error.to_human().contains("Check MEALIE_TOKEN"));
+}
+
+#[test]
+fn rejects_reversed_plan_range_before_calling_api() {
+    let server = Server::new();
+    let error = run_from(
+        [
+            "mealie",
+            "plan",
+            "list",
+            "--from",
+            "2026-05-17",
+            "--to",
+            "2026-05-16",
+        ],
+        env(&server.url()),
+    )
+    .expect_err("reversed range");
+
+    assert_eq!(error.code(), ErrorCode::InvalidArgs);
+    assert_eq!(
+        error.to_string(),
+        "--from (2026-05-17) must be on or before --to (2026-05-16)"
+    );
+}
+
+#[test]
+fn rejects_blank_recipe_query() {
+    let server = Server::new();
+    let error = run_from(["mealie", "recipes", "search", "   "], env(&server.url()))
+        .expect_err("blank query");
+
+    assert_eq!(error.code(), ErrorCode::InvalidArgs);
+    assert_eq!(error.to_string(), "recipe search query cannot be empty");
+}
+
+#[test]
+fn rejects_recipe_limit_outside_api_range() {
+    let error = run_from(
+        ["mealie", "recipes", "search", "pesto", "--limit", "101"],
+        Vec::<(&str, &str)>::new(),
+    )
+    .expect_err("limit should be validated before config");
+
+    assert_eq!(error.code(), ErrorCode::InvalidArgs);
+    assert!(error.to_string().contains("101 is not in 1..=100"));
 }

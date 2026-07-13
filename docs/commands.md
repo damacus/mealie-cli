@@ -8,6 +8,8 @@ Search recipes:
 mealie recipes search "pesto chicken" --limit 5
 ```
 
+`--limit` accepts values from 1 to 100. `recipe` is a singular alias for `recipes`.
+
 Get one recipe by exact slug:
 
 ```bash
@@ -21,6 +23,8 @@ List entries:
 ```bash
 mealie plan list --from 2026-05-13 --to 2026-05-16
 ```
+
+The start date must be on or before the end date. `meal-plan` is an alias for `plan`.
 
 Filter by meal type:
 

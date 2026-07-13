@@ -1,7 +1,7 @@
 # mealie-cli
 
 `mealie-cli` is a small Rust command-line client for the [Mealie](https://www.mealie.io/) REST API.
-It is designed for automation and LLM-facing workflows: output is compact, stable JSON with no prose on successful commands.
+It is designed for both interactive use and automation: commands are readable by default, with stable JSON formats available when a script needs them.
 
 ## Install
 
@@ -40,7 +40,14 @@ and should not be used on untrusted networks.
 
 ## Output
 
-NDJSON is the default output format, one JSON object per line:
+Human-readable output is the default. Lists use aligned tables, detail commands use labelled fields, and mutations say what changed:
+
+```text
+NAME           SLUG           ID
+Pesto Chicken  pesto-chicken  2f34...
+```
+
+Use `--json` for one pretty JSON array or `--ndjson` for one JSON object per line:
 
 ```json
 {"ok":true,"type":"recipe","id":"uuid","slug":"recipe-slug","name":"Recipe Name"}
@@ -50,11 +57,18 @@ Global output flags:
 
 ```text
 --json     print one pretty JSON document
---ndjson   print NDJSON, default
---quiet    print only mutation ids, or nothing for successful reads
+--ndjson   print NDJSON
+--quiet    quiet mode; print only IDs for successful changes
 ```
 
-Errors are always machine-readable:
+Errors are written to stderr and include a practical hint when one is available:
+
+```text
+Error: MEALIE_URL is required
+Hint: Set MEALIE_URL and MEALIE_TOKEN, then run the command again.
+```
+
+With `--json` or `--ndjson`, errors remain machine-readable on stderr:
 
 ```json
 {"ok":false,"error":"not_found","message":"get recipe returned 404"}
@@ -67,6 +81,7 @@ missing_config
 invalid_args
 not_found
 ambiguous
+authentication
 api_error
 network_error
 ```

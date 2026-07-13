@@ -1,4 +1,4 @@
-use std::process::ExitCode;
+use std::{env, process::ExitCode};
 
 fn main() -> ExitCode {
     match mealie_cli::run_from_env() {
@@ -7,8 +7,14 @@ fn main() -> ExitCode {
             ExitCode::SUCCESS
         }
         Err(error) => {
-            println!("{}", error.to_json_line());
-            ExitCode::FAILURE
+            let machine_readable =
+                env::args_os().any(|argument| argument == "--json" || argument == "--ndjson");
+            if machine_readable {
+                eprintln!("{}", error.to_json_line());
+            } else {
+                eprintln!("{}", error.to_human());
+            }
+            ExitCode::from(error.exit_code())
         }
     }
 }
