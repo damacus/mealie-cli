@@ -246,6 +246,57 @@ fn lists_plan_with_type_filter() {
 }
 
 #[test]
+fn lists_plan_across_all_pages() {
+    let mut server = Server::new();
+    let _first_page = server
+        .mock("GET", "/api/households/mealplans")
+        .match_query(Matcher::AllOf(vec![
+            Matcher::UrlEncoded("start_date".into(), "2026-05-13".into()),
+            Matcher::UrlEncoded("end_date".into(), "2026-05-16".into()),
+            Matcher::UrlEncoded("perPage".into(), "100".into()),
+            Matcher::UrlEncoded("orderBy".into(), "date".into()),
+            Matcher::UrlEncoded("orderDirection".into(), "asc".into()),
+        ]))
+        .with_status(200)
+        .with_body(
+            r#"{"page":1,"total_pages":2,"items":[{"id":1,"date":"2026-05-13","entryType":"dinner","title":"Pasta"}]}"#,
+        )
+        .create();
+    let _second_page = server
+        .mock("GET", "/api/households/mealplans")
+        .match_query(Matcher::AllOf(vec![
+            Matcher::UrlEncoded("start_date".into(), "2026-05-13".into()),
+            Matcher::UrlEncoded("end_date".into(), "2026-05-16".into()),
+            Matcher::UrlEncoded("perPage".into(), "100".into()),
+            Matcher::UrlEncoded("orderBy".into(), "date".into()),
+            Matcher::UrlEncoded("orderDirection".into(), "asc".into()),
+            Matcher::UrlEncoded("page".into(), "2".into()),
+        ]))
+        .with_status(200)
+        .with_body(
+            r#"{"page":2,"total_pages":2,"items":[{"id":2,"date":"2026-05-14","entryType":"dinner","title":"Curry"}]}"#,
+        )
+        .create();
+
+    let output = run_from(
+        [
+            "mealie",
+            "plan",
+            "list",
+            "--from",
+            "2026-05-13",
+            "--to",
+            "2026-05-16",
+        ],
+        env(&server.url()),
+    )
+    .expect("paginated plan list");
+
+    assert!(output.contains("2026-05-13  dinner  Pasta"));
+    assert!(output.contains("2026-05-14  dinner  Curry"));
+}
+
+#[test]
 fn lists_plan_from_top_level_array() {
     let mut server = Server::new();
     let _mock = server
