@@ -419,6 +419,97 @@ fn sets_title_replacement() {
 }
 
 #[test]
+fn keeps_existing_entry_when_replacement_create_fails() {
+    let mut server = Server::new();
+    let _list = server
+        .mock("GET", "/api/households/mealplans")
+        .match_query(Matcher::Any)
+        .with_status(200)
+        .with_body(
+            r#"{"items":[{"id":10,"date":"2026-05-13","entryType":"dinner","title":"Old"}]}"#,
+        )
+        .create();
+    let delete = server
+        .mock("DELETE", "/api/households/mealplans/10")
+        .expect(0)
+        .create();
+    let _create = server
+        .mock("POST", "/api/households/mealplans")
+        .with_status(500)
+        .create();
+
+    let error = run_from(
+        [
+            "mealie",
+            "plan",
+            "set",
+            "--date",
+            "2026-05-13",
+            "--type",
+            "dinner",
+            "--title",
+            "Bolognaise",
+        ],
+        env(&server.url()),
+    )
+    .expect_err("create failure");
+
+    assert_eq!(error.code(), ErrorCode::ApiError);
+    delete.assert();
+}
+
+#[test]
+fn rolls_back_new_entry_when_original_cannot_be_deleted() {
+    let mut server = Server::new();
+    let _list = server
+        .mock("GET", "/api/households/mealplans")
+        .match_query(Matcher::Any)
+        .with_status(200)
+        .with_body(
+            r#"{"items":[{"id":10,"date":"2026-05-13","entryType":"dinner","title":"Old"}]}"#,
+        )
+        .create();
+    let _create = server
+        .mock("POST", "/api/households/mealplans")
+        .with_status(200)
+        .with_body(r#"{"id":11,"date":"2026-05-13","entryType":"dinner","title":"Bolognaise"}"#)
+        .create();
+    let _delete_original = server
+        .mock("DELETE", "/api/households/mealplans/10")
+        .with_status(500)
+        .create();
+    let rollback = server
+        .mock("DELETE", "/api/households/mealplans/11")
+        .with_status(204)
+        .expect(1)
+        .create();
+
+    let error = run_from(
+        [
+            "mealie",
+            "plan",
+            "set",
+            "--date",
+            "2026-05-13",
+            "--type",
+            "dinner",
+            "--title",
+            "Bolognaise",
+        ],
+        env(&server.url()),
+    )
+    .expect_err("delete failure");
+
+    assert_eq!(error.code(), ErrorCode::ApiError);
+    assert!(
+        error.to_human().contains("the new entry was rolled back"),
+        "{}",
+        error.to_human()
+    );
+    rollback.assert();
+}
+
+#[test]
 fn sets_recipe_replacement() {
     let mut server = Server::new();
     let _recipe = server
