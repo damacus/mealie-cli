@@ -76,14 +76,19 @@ pub enum PlanCommand {
     },
     /// Show a Monday-to-Sunday meal-plan view
     #[command(
-        after_help = "Examples:\n  mealie plan week\n  mealie plan week --date 2026-05-13\n  mealie plan week --offset -1\n\n--date accepts YYYY-MM-DD, today, tomorrow, yesterday, +Nd/-Nd, or +Nw/-Nw.\n--offset is a signed number of whole weeks from the current local week."
+        after_help = "Examples:\n  mealie plan week\n  mealie plan week --date 2026-05-13\n  mealie plan week --offset -1\n\n--date accepts YYYY-MM-DD, today, tomorrow, yesterday, +Nd/-Nd, or +Nw/-Nw.\n--offset is a signed number of whole weeks from the current local week.\n--date and --offset cannot be used together."
     )]
     Week {
         /// Anchor the view to the ISO week containing this date
         #[arg(long, allow_hyphen_values = true, conflicts_with = "offset")]
         date: Option<String>,
         /// Signed number of weeks from the current local week
-        #[arg(long, allow_hyphen_values = true, conflicts_with = "date")]
+        #[arg(
+            long,
+            allow_hyphen_values = true,
+            value_name = "WEEKS",
+            conflicts_with = "date"
+        )]
         offset: Option<i64>,
     },
     /// Create or replace a meal plan entry

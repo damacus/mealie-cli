@@ -844,6 +844,42 @@ mod tests {
     }
 
     #[test]
+    fn fixed_today_week_ndjson_preserves_empty_record_without_terminal_layout_fields() {
+        let today = chrono::NaiveDate::from_ymd_opt(2026, 5, 13).expect("valid date");
+        let mut server = Server::new();
+        let _mock = server
+            .mock("GET", "/api/households/mealplans")
+            .match_query(Matcher::AllOf(vec![
+                Matcher::UrlEncoded("start_date".into(), "2026-05-11".into()),
+                Matcher::UrlEncoded("end_date".into(), "2026-05-17".into()),
+                Matcher::UrlEncoded("perPage".into(), "100".into()),
+                Matcher::UrlEncoded("orderBy".into(), "date".into()),
+                Matcher::UrlEncoded("orderDirection".into(), "asc".into()),
+            ]))
+            .with_status(200)
+            .with_body(r#"{"items":[]}"#)
+            .expect(1)
+            .create();
+
+        let output = run_from_with_exit_at(
+            ["mealie", "--ndjson", "plan", "week"],
+            env(&server.url()),
+            today,
+        )
+        .expect("empty structured week output")
+        .output;
+        let record: serde_json::Value = serde_json::from_str(&output).expect("empty plan record");
+
+        assert_eq!(record["type"], "empty");
+        assert_eq!(record["ok"], true);
+        assert_eq!(record["resource"], "plan_entry");
+        assert_eq!(record["from"], "2026-05-11");
+        assert_eq!(record["to"], "2026-05-17");
+        assert!(record.get("columns").is_none());
+        assert!(record.get("week").is_none());
+    }
+
+    #[test]
     fn accepts_valid_terminal_width_or_uses_a_stable_fallback() {
         assert_eq!(
             terminal_columns(&[("COLUMNS".to_string(), "59".to_string())]),
