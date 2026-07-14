@@ -1,3 +1,4 @@
+use chrono::{Datelike, Duration, NaiveDate};
 use serde_json::{Map, Value};
 
 use crate::{AppError, ErrorCode};
@@ -28,9 +29,19 @@ impl OutputMode {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Presentation {
     Status,
-    RecipeSearch { query: String },
+    RecipeSearch {
+        query: String,
+    },
     RecipeDetails,
-    PlanList { from: String, to: String },
+    PlanList {
+        from: String,
+        to: String,
+    },
+    PlanWeek {
+        from: String,
+        to: String,
+        columns: usize,
+    },
     PlanSet,
     PlanDelete,
 }
@@ -120,6 +131,7 @@ fn write_human(presentation: &Presentation, values: &[Value]) -> String {
                 )
             )
         }
+        Presentation::PlanWeek { from, to, columns } => write_plan_week(from, to, *columns, values),
         Presentation::PlanSet => {
             let created = values
                 .iter()
@@ -148,6 +160,80 @@ fn write_human(presentation: &Presentation, values: &[Value]) -> String {
             format!("Deleted meal plan entry {}.\n", text(&values[0], "id"))
         }
     }
+}
+
+fn write_plan_week(from: &str, to: &str, columns: usize, values: &[Value]) -> String {
+    let Some(monday) = parse_iso_date(from) else {
+        return format!("Meal plan week {from} to {to}:\n(no usable week dates returned)\n");
+    };
+    let entries = values
+        .iter()
+        .filter(|value| value.get("type").and_then(Value::as_str) == Some("plan_entry"))
+        .collect::<Vec<_>>();
+    let mut output = format!("Meal plan week {from} to {to}:\n");
+
+    for day_offset in 0..7 {
+        let day = monday
+            .checked_add_signed(Duration::days(day_offset))
+            .expect("a complete ISO week is representable");
+        let day_text = day.to_string();
+        let day_entries = entries
+            .iter()
+            .copied()
+            .filter(|entry| entry.get("date").and_then(Value::as_str) == Some(day_text.as_str()))
+            .collect::<Vec<_>>();
+
+        if columns < 60 {
+            output.push_str(&format!("{} {day_text}\n", weekday_name(day)));
+            if day_entries.is_empty() {
+                output.push_str("  - (no meals planned)\n");
+            } else {
+                for entry in day_entries {
+                    output.push_str("  - ");
+                    output.push_str(&plan_entry_label(entry));
+                    output.push('\n');
+                }
+            }
+        } else {
+            let meals = if day_entries.is_empty() {
+                "(no meals planned)".to_string()
+            } else {
+                day_entries
+                    .into_iter()
+                    .map(plan_entry_label)
+                    .collect::<Vec<_>>()
+                    .join("; ")
+            };
+            output.push_str(&format!("{:<9} {day_text}  {meals}\n", weekday_name(day)));
+        }
+    }
+
+    output
+}
+
+fn parse_iso_date(value: &str) -> Option<NaiveDate> {
+    NaiveDate::parse_from_str(value, "%Y-%m-%d").ok()
+}
+
+fn weekday_name(date: NaiveDate) -> &'static str {
+    match date.weekday().num_days_from_monday() {
+        0 => "Monday",
+        1 => "Tuesday",
+        2 => "Wednesday",
+        3 => "Thursday",
+        4 => "Friday",
+        5 => "Saturday",
+        6 => "Sunday",
+        _ => unreachable!("weekday offset is always between zero and six"),
+    }
+}
+
+fn plan_entry_label(entry: &Value) -> String {
+    let meal = text(entry, "meal");
+    let label = non_empty_text(entry, "title")
+        .or_else(|| non_empty_text(entry, "recipe"))
+        .unwrap_or_else(|| "meal plan entry".to_string());
+    format!("{meal}: {label} (ID {})", text(entry, "id"))
 }
 
 fn write_status(value: &Value) -> String {
@@ -309,4 +395,66 @@ fn append_row(output: &mut String, row: &[String], widths: &[usize]) {
         }
     }
     output.push('\n');
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn plan_entry(id: i64, date: &str, meal: &str, title: &str) -> Value {
+        record(
+            "plan_entry",
+            [
+                ("id", serde_json::json!(id)),
+                ("date", serde_json::json!(date)),
+                ("meal", serde_json::json!(meal)),
+                ("title", serde_json::json!(title)),
+                ("recipe", Value::Null),
+            ],
+        )
+    }
+
+    #[test]
+    fn week_view_uses_compact_rows_at_normal_width() {
+        let output = write_output(
+            OutputMode::Human,
+            CommandOutput {
+                presentation: Presentation::PlanWeek {
+                    from: "2026-05-11".to_string(),
+                    to: "2026-05-17".to_string(),
+                    columns: 80,
+                },
+                values: vec![
+                    plan_entry(1, "2026-05-11", "breakfast", "Toast"),
+                    plan_entry(2, "2026-05-11", "dinner", "Pasta"),
+                ],
+            },
+        )
+        .expect("week output");
+
+        assert!(
+            output.contains("Monday    2026-05-11  breakfast: Toast (ID 1); dinner: Pasta (ID 2)")
+        );
+        assert!(output.contains("Sunday    2026-05-17  (no meals planned)"));
+    }
+
+    #[test]
+    fn week_view_uses_stacked_ascii_rows_below_sixty_columns() {
+        let output = write_output(
+            OutputMode::Human,
+            CommandOutput {
+                presentation: Presentation::PlanWeek {
+                    from: "2026-05-11".to_string(),
+                    to: "2026-05-17".to_string(),
+                    columns: 59,
+                },
+                values: vec![plan_entry(1, "2026-05-11", "dinner", "Pasta")],
+            },
+        )
+        .expect("narrow week output");
+
+        assert!(output.contains("Monday 2026-05-11\n  - dinner: Pasta (ID 1)"));
+        assert!(output.contains("Tuesday 2026-05-12\n  - (no meals planned)"));
+        assert!(!output.contains('•'));
+    }
 }

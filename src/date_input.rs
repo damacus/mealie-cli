@@ -66,6 +66,28 @@ pub(crate) fn resolve_plan_range(
     Ok((from, to))
 }
 
+/// Resolves the Monday-to-Sunday ISO week selected by a date anchor or whole-week offset.
+pub(crate) fn resolve_week_range(
+    date: Option<&str>,
+    offset: Option<i64>,
+    today: NaiveDate,
+) -> Result<(NaiveDate, NaiveDate), AppError> {
+    let anchor = match date {
+        Some(value) => parse_date_input("--date", value, today)?,
+        None => today,
+    };
+    let monday = monday_of_week(anchor)?;
+    let monday = match offset {
+        Some(weeks) => monday
+            .checked_add_signed(Duration::try_weeks(weeks).ok_or_else(|| week_offset_error(weeks))?)
+            .ok_or_else(|| week_offset_error(weeks))?,
+        None => monday,
+    };
+    let sunday = sunday_of_week(monday)?;
+
+    Ok((monday, sunday))
+}
+
 fn parse_signed_offset(value: &str, today: NaiveDate) -> Option<NaiveDate> {
     let (unit_start, unit) = value.char_indices().next_back()?;
     let number = &value[..unit_start];
@@ -98,6 +120,13 @@ fn week_completion_error(date: NaiveDate) -> AppError {
     AppError::new(
         ErrorCode::InvalidArgs,
         format!("cannot complete the ISO week containing {date}"),
+    )
+}
+
+fn week_offset_error(offset: i64) -> AppError {
+    AppError::new(
+        ErrorCode::InvalidArgs,
+        format!("--offset ({offset}) cannot be applied to the current ISO week"),
     )
 }
 
@@ -208,5 +237,34 @@ mod tests {
 
         assert_eq!(max_error.code(), ErrorCode::InvalidArgs);
         assert_eq!(min_error.code(), ErrorCode::InvalidArgs);
+    }
+
+    #[test]
+    fn resolves_current_anchored_and_offset_iso_weeks() {
+        let today = date("2026-01-01"); // Thursday, in the week spanning the year boundary.
+        assert_eq!(
+            resolve_week_range(None, None, today).unwrap(),
+            (date("2025-12-29"), date("2026-01-04"))
+        );
+        assert_eq!(
+            resolve_week_range(Some("2026-01-01"), None, date("2026-05-13")).unwrap(),
+            (date("2025-12-29"), date("2026-01-04"))
+        );
+        assert_eq!(
+            resolve_week_range(None, Some(-1), date("2026-05-13")).unwrap(),
+            (date("2026-05-04"), date("2026-05-10"))
+        );
+        assert_eq!(
+            resolve_week_range(None, Some(1), date("2026-05-13")).unwrap(),
+            (date("2026-05-18"), date("2026-05-24"))
+        );
+    }
+
+    #[test]
+    fn rejects_week_offsets_that_overflow_date_arithmetic() {
+        let error = resolve_week_range(None, Some(i64::MAX), date("2026-05-13"))
+            .expect_err("overflowing week offset should fail");
+
+        assert_eq!(error.code(), ErrorCode::InvalidArgs);
     }
 }

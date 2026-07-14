@@ -134,6 +134,21 @@ Filter meal plans by type:
 mealie plan list --from 2026-05-13 --to 2026-05-16 --type dinner
 ```
 
+View a complete Monday-to-Sunday week, including days with no meals. With no
+options it shows the current local week; use an anchor date or signed whole-week
+offset to choose another week:
+
+```text
+mealie plan week
+mealie plan week --date 2026-05-13
+mealie plan week --offset -1
+```
+
+The human view is grouped by day and switches to a stacked ASCII-only form when
+`COLUMNS` is below 60. `--json` and `--ndjson` keep emitting the existing stable
+`plan_entry` records (or the existing empty record), so terminal layout never
+changes automation output.
+
 Create or replace a plain-text meal plan entry:
 
 ```text
