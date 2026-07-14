@@ -1,4 +1,5 @@
 use clap::{Args, Parser, Subcommand};
+use clap_complete::Shell;
 
 use crate::meal_type::MealType;
 
@@ -22,6 +23,9 @@ pub struct Cli {
 
 #[derive(Debug, Subcommand)]
 pub enum Command {
+    Completion {
+        shell: Shell,
+    },
     #[command(subcommand, visible_alias = "recipe")]
     Recipes(RecipesCommand),
     #[command(subcommand, visible_alias = "meal-plan")]
