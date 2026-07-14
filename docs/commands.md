@@ -21,7 +21,7 @@ mealie recipes search "pesto chicken" --limit 5
 
 `--limit` accepts values from 1 to 100. `recipe` is a singular alias for `recipes`.
 
-Get one recipe and its complete ingredient list by exact slug:
+Get one recipe and its complete ingredient list by slug or exact name:
 
 ```bash
 mealie recipes get butter-chicken
@@ -71,4 +71,4 @@ breakfast lunch dinner side snack drink dessert
 
 `plan set` requires exactly one of `--title` or `--recipe`.
 
-Recipe-backed mutations require an exact recipe slug. The CLI does not guess from fuzzy search results.
+Recipe references first match an exact slug. If that slug does not exist, the CLI accepts one exact case-insensitive recipe name. Several exact name matches return an `ambiguous` error listing candidate names and slugs. The CLI never guesses from fuzzy search results.

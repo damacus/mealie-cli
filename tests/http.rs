@@ -155,6 +155,7 @@ fn gets_recipe() {
         .with_status(200)
         .with_body(r#"{"id":"r1","slug":"pesto-chicken","name":"Pesto Chicken"}"#)
         .create();
+    let search = server.mock("GET", "/api/recipes").expect(0).create();
 
     let output = run_from(
         ["mealie", "--json", "recipes", "get", "pesto-chicken"],
@@ -164,6 +165,228 @@ fn gets_recipe() {
 
     assert!(output.contains("\"type\": \"recipe\""));
     assert!(output.contains("\"slug\": \"pesto-chicken\""));
+    search.assert();
+}
+
+#[test]
+fn gets_recipe_by_unique_case_insensitive_name_after_slug_lookup_misses() {
+    let mut server = Server::new();
+    let slug = server
+        .mock("GET", "/api/recipes/Pesto%20Chicken")
+        .with_status(404)
+        .expect(1)
+        .create();
+    let search = server
+        .mock("GET", "/api/recipes")
+        .match_query(Matcher::AllOf(vec![
+            Matcher::UrlEncoded("search".into(), "Pesto Chicken".into()),
+            Matcher::UrlEncoded("perPage".into(), "100".into()),
+        ]))
+        .with_status(200)
+        .with_body(r#"{"items":[{"id":"r1","slug":"pesto-chicken","name":"pEsTo ChIcKeN"}]}"#)
+        .expect(1)
+        .create();
+
+    let output = run_from(
+        ["mealie", "--json", "recipes", "get", "Pesto Chicken"],
+        env(&server.url()),
+    )
+    .expect("recipe output");
+
+    assert!(output.contains("\"slug\": \"pesto-chicken\""));
+    assert!(output.contains("\"name\": \"pEsTo ChIcKeN\""));
+    slug.assert();
+    search.assert();
+}
+
+#[test]
+fn name_lookup_preserves_not_found_when_no_exact_name_matches() {
+    let mut server = Server::new();
+    let slug = server
+        .mock("GET", "/api/recipes/Pesto%20Chicken")
+        .with_status(404)
+        .expect(1)
+        .create();
+    let search = server
+        .mock("GET", "/api/recipes")
+        .match_query(Matcher::AllOf(vec![
+            Matcher::UrlEncoded("search".into(), "Pesto Chicken".into()),
+            Matcher::UrlEncoded("perPage".into(), "100".into()),
+        ]))
+        .with_status(200)
+        .with_body(
+            r#"{"items":[{"id":"r1","slug":"pesto-chicken","name":"Pesto chicken with rice"}]}"#,
+        )
+        .expect(1)
+        .create();
+
+    let error = run_from(
+        ["mealie", "recipes", "get", "Pesto Chicken"],
+        env(&server.url()),
+    )
+    .expect_err("no exact recipe name");
+
+    assert_eq!(error.code(), ErrorCode::NotFound);
+    slug.assert();
+    search.assert();
+}
+
+#[test]
+fn name_lookup_reports_all_exact_name_matches_across_search_pages() {
+    let mut server = Server::new();
+    let slug = server
+        .mock("GET", "/api/recipes/Pesto%20Chicken")
+        .with_status(404)
+        .expect(1)
+        .create();
+    let first_page = server
+        .mock("GET", "/api/recipes")
+        .match_query(Matcher::AllOf(vec![
+            Matcher::UrlEncoded("search".into(), "Pesto Chicken".into()),
+            Matcher::UrlEncoded("perPage".into(), "100".into()),
+        ]))
+        .with_status(200)
+        .with_body(
+            r#"{"total_pages":2,"items":[{"id":"r1","slug":"pesto-chicken","name":"Pesto Chicken"}]}"#,
+        )
+        .expect(1)
+        .create();
+    let second_page = server
+        .mock("GET", "/api/recipes")
+        .match_query(Matcher::AllOf(vec![
+            Matcher::UrlEncoded("search".into(), "Pesto Chicken".into()),
+            Matcher::UrlEncoded("perPage".into(), "100".into()),
+            Matcher::UrlEncoded("page".into(), "2".into()),
+        ]))
+        .with_status(200)
+        .with_body(
+            r#"{"totalPages":2,"items":[{"id":"r2","slug":"pesto-chicken-2","name":"PESTO CHICKEN"}]}"#,
+        )
+        .expect(1)
+        .create();
+
+    let error = run_from(
+        ["mealie", "recipes", "get", "Pesto Chicken"],
+        env(&server.url()),
+    )
+    .expect_err("ambiguous recipe name");
+
+    assert_eq!(error.code(), ErrorCode::Ambiguous);
+    assert!(error.to_string().contains("Pesto Chicken (pesto-chicken)"));
+    assert!(
+        error
+            .to_string()
+            .contains("PESTO CHICKEN (pesto-chicken-2)")
+    );
+    slug.assert();
+    first_page.assert();
+    second_page.assert();
+}
+
+#[test]
+fn plan_set_does_not_mutate_when_recipe_name_has_no_exact_match() {
+    let mut server = Server::new();
+    let slug = server
+        .mock("GET", "/api/recipes/Pesto%20Chicken")
+        .with_status(404)
+        .expect(1)
+        .create();
+    let search = server
+        .mock("GET", "/api/recipes")
+        .match_query(Matcher::AllOf(vec![
+            Matcher::UrlEncoded("search".into(), "Pesto Chicken".into()),
+            Matcher::UrlEncoded("perPage".into(), "100".into()),
+        ]))
+        .with_status(200)
+        .with_body(r#"{"items":[]}"#)
+        .expect(1)
+        .create();
+    let list = server
+        .mock("GET", "/api/households/mealplans")
+        .expect(0)
+        .create();
+    let create = server
+        .mock("POST", "/api/households/mealplans")
+        .expect(0)
+        .create();
+    let delete = server.mock("DELETE", Matcher::Any).expect(0).create();
+
+    let error = run_from(
+        [
+            "mealie",
+            "plan",
+            "set",
+            "--date",
+            "2026-05-16",
+            "--type",
+            "dinner",
+            "--recipe",
+            "Pesto Chicken",
+        ],
+        env(&server.url()),
+    )
+    .expect_err("no exact recipe name");
+
+    assert_eq!(error.code(), ErrorCode::NotFound);
+    slug.assert();
+    search.assert();
+    list.assert();
+    create.assert();
+    delete.assert();
+}
+
+#[test]
+fn plan_set_does_not_mutate_when_recipe_name_is_ambiguous() {
+    let mut server = Server::new();
+    let slug = server
+        .mock("GET", "/api/recipes/Pesto%20Chicken")
+        .with_status(404)
+        .expect(1)
+        .create();
+    let search = server
+        .mock("GET", "/api/recipes")
+        .match_query(Matcher::AllOf(vec![
+            Matcher::UrlEncoded("search".into(), "Pesto Chicken".into()),
+            Matcher::UrlEncoded("perPage".into(), "100".into()),
+        ]))
+        .with_status(200)
+        .with_body(
+            r#"{"items":[{"id":"r1","slug":"pesto-chicken","name":"Pesto Chicken"},{"id":"r2","slug":"pesto-chicken-2","name":"PESTO CHICKEN"}]}"#,
+        )
+        .expect(1)
+        .create();
+    let list = server
+        .mock("GET", "/api/households/mealplans")
+        .expect(0)
+        .create();
+    let create = server
+        .mock("POST", "/api/households/mealplans")
+        .expect(0)
+        .create();
+    let delete = server.mock("DELETE", Matcher::Any).expect(0).create();
+
+    let error = run_from(
+        [
+            "mealie",
+            "plan",
+            "set",
+            "--date",
+            "2026-05-16",
+            "--type",
+            "dinner",
+            "--recipe",
+            "Pesto Chicken",
+        ],
+        env(&server.url()),
+    )
+    .expect_err("ambiguous recipe name");
+
+    assert_eq!(error.code(), ErrorCode::Ambiguous);
+    slug.assert();
+    search.assert();
+    list.assert();
+    create.assert();
+    delete.assert();
 }
 
 #[test]
@@ -259,6 +482,15 @@ fn maps_not_found() {
         .mock("GET", "/api/recipes/missing")
         .with_status(404)
         .with_body(r#"{"detail":{"message":"No Entry Found","error":true,"exception":null}}"#)
+        .create();
+    let _search = server
+        .mock("GET", "/api/recipes")
+        .match_query(Matcher::AllOf(vec![
+            Matcher::UrlEncoded("search".into(), "missing".into()),
+            Matcher::UrlEncoded("perPage".into(), "100".into()),
+        ]))
+        .with_status(200)
+        .with_body(r#"{"items":[]}"#)
         .create();
 
     let error =
@@ -668,6 +900,7 @@ fn maps_api_error() {
         .with_status(500)
         .with_body(r#"{"message":"database unavailable"}"#)
         .create();
+    let search = server.mock("GET", "/api/recipes").expect(0).create();
 
     let error = run_from(
         ["mealie", "recipes", "get", "pesto-chicken"],
@@ -680,6 +913,7 @@ fn maps_api_error() {
         error.to_string(),
         "get recipe: database unavailable (HTTP 500 Internal Server Error)"
     );
+    search.assert();
 }
 
 #[test]
@@ -690,6 +924,7 @@ fn maps_authentication_error_with_hint() {
         .with_status(401)
         .with_body(r#"{"detail":"invalid token"}"#)
         .create();
+    let search = server.mock("GET", "/api/recipes").expect(0).create();
 
     let error = run_from(
         ["mealie", "recipes", "get", "pesto-chicken"],
@@ -700,6 +935,7 @@ fn maps_authentication_error_with_hint() {
     assert_eq!(error.code(), ErrorCode::Authentication);
     assert_eq!(error.exit_code(), 4);
     assert!(error.to_human().contains("Check MEALIE_TOKEN"));
+    search.assert();
 }
 
 #[test]

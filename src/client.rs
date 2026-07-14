@@ -7,6 +7,7 @@ use serde_json::Value;
 use crate::{AppError, ErrorCode, config::Config};
 
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
+const RECIPE_RESOLUTION_PAGE_SIZE: usize = 100;
 
 #[derive(Debug, Clone)]
 pub struct MealieClient {
@@ -149,6 +150,80 @@ impl MealieClient {
             .and_then(|response| checked_json(response, "get recipe"))?;
 
         recipe_from_value(&value)
+    }
+
+    pub fn resolve_recipe(&self, query: &str) -> Result<Recipe, AppError> {
+        match self.get_recipe(query) {
+            Ok(recipe) => Ok(recipe),
+            Err(not_found) if not_found.code() == ErrorCode::NotFound => {
+                self.resolve_recipe_name(query, not_found)
+            }
+            Err(error) => Err(error),
+        }
+    }
+
+    fn resolve_recipe_name(&self, query: &str, not_found: AppError) -> Result<Recipe, AppError> {
+        let normalized_query = query.to_lowercase();
+        let mut page = 1;
+        let mut matches = Vec::new();
+
+        loop {
+            let mut parameters = vec![
+                ("search", query.to_string()),
+                ("perPage", RECIPE_RESOLUTION_PAGE_SIZE.to_string()),
+            ];
+            if page > 1 {
+                parameters.push(("page", page.to_string()));
+            }
+
+            let value = self
+                .http
+                .get(self.config.endpoint("/api/recipes"))
+                .bearer_auth(&self.config.token)
+                .query(&parameters)
+                .send()
+                .map_err(AppError::from)
+                .and_then(|response| checked_json(response, "search recipes"))?;
+
+            let items = collection_items(&value);
+            let item_count = items.len();
+            matches.extend(
+                items
+                    .iter()
+                    .map(recipe_from_value)
+                    .collect::<Result<Vec<_>, _>>()?
+                    .into_iter()
+                    .filter(|recipe| recipe.name.to_lowercase() == normalized_query),
+            );
+
+            let total_pages = value
+                .get("total_pages")
+                .or_else(|| value.get("totalPages"))
+                .and_then(Value::as_u64);
+            if total_pages.is_some_and(|last_page| page >= last_page as usize)
+                || total_pages.is_none() && item_count < RECIPE_RESOLUTION_PAGE_SIZE
+            {
+                break;
+            }
+
+            page += 1;
+        }
+
+        match matches.len() {
+            0 => Err(not_found),
+            1 => Ok(matches.pop().expect("one recipe match")),
+            _ => Err(AppError::new(
+                ErrorCode::Ambiguous,
+                format!(
+                    "recipe name \"{query}\" matches multiple recipes: {}",
+                    matches
+                        .iter()
+                        .map(|recipe| format!("{} ({})", recipe.name, recipe.slug))
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                ),
+            )),
+        }
     }
 
     pub fn list_plan(&self, from: &str, to: &str) -> Result<Vec<PlanEntry>, AppError> {
