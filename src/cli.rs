@@ -9,7 +9,7 @@ use crate::meal_type::MealType;
     version,
     about = "Manage recipes and meal plans in Mealie",
     arg_required_else_help = true,
-    after_help = "Examples:\n  mealie status\n  mealie recipes search \"pesto chicken\"\n  mealie plan list --from 2026-05-13 --to 2026-05-16\n  mealie plan set --date 2026-05-16 --type dinner --recipe pesto-chicken"
+    after_help = "Examples:\n  mealie status\n  mealie recipes search \"pesto chicken\"\n  mealie plan list --from 2026-05-13 --to 2026-05-16\n  mealie plan week --offset -1\n  mealie plan set --date 2026-05-16 --type dinner --recipe pesto-chicken"
 )]
 pub struct Cli {
     #[arg(long, global = true, conflicts_with_all = ["ndjson", "quiet"], help = "Output one pretty JSON array")]
@@ -73,6 +73,23 @@ pub enum PlanCommand {
         /// Only return entries for this meal type
         #[arg(long = "type", value_enum)]
         meal_type: Option<MealType>,
+    },
+    /// Show a Monday-to-Sunday meal-plan view
+    #[command(
+        after_help = "Examples:\n  mealie plan week\n  mealie plan week --date 2026-05-13\n  mealie plan week --offset -1\n\n--date accepts YYYY-MM-DD, today, tomorrow, yesterday, +Nd/-Nd, or +Nw/-Nw.\n--offset is a signed number of whole weeks from the current local week.\n--date and --offset cannot be used together."
+    )]
+    Week {
+        /// Anchor the view to the ISO week containing this date
+        #[arg(long, allow_hyphen_values = true, conflicts_with = "offset")]
+        date: Option<String>,
+        /// Signed number of weeks from the current local week
+        #[arg(
+            long,
+            allow_hyphen_values = true,
+            value_name = "WEEKS",
+            conflicts_with = "date"
+        )]
+        offset: Option<i64>,
     },
     /// Create or replace a meal plan entry
     #[command(
@@ -144,5 +161,36 @@ mod tests {
             .expect_err("unknown flags must remain rejected");
 
         assert_eq!(error.kind(), ErrorKind::UnknownArgument);
+    }
+
+    #[test]
+    fn parses_week_options_and_rejects_mutual_exclusion() {
+        let cli = Cli::try_parse_from(["mealie", "plan", "week", "--offset", "-1"])
+            .expect("negative week offsets should parse");
+        let Command::Plan(PlanCommand::Week { date, offset }) = cli.command else {
+            panic!("expected plan week command");
+        };
+        assert_eq!(date, None);
+        assert_eq!(offset, Some(-1));
+
+        let cli = Cli::try_parse_from(["mealie", "plan", "week", "--date", "-1w"])
+            .expect("negative date anchors should parse");
+        let Command::Plan(PlanCommand::Week { date, offset }) = cli.command else {
+            panic!("expected plan week command");
+        };
+        assert_eq!(date.as_deref(), Some("-1w"));
+        assert_eq!(offset, None);
+
+        let error = Cli::try_parse_from([
+            "mealie",
+            "plan",
+            "week",
+            "--date",
+            "2026-05-13",
+            "--offset",
+            "1",
+        ])
+        .expect_err("week date and offset should conflict");
+        assert_eq!(error.kind(), ErrorKind::ArgumentConflict);
     }
 }

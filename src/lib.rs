@@ -14,7 +14,7 @@ use clap::{CommandFactory, Parser, error::ErrorKind};
 use cli::{Cli, Command, PlanCommand, RecipesCommand};
 use client::{MealieClient, PlanCreateRequest};
 use config::{Config, HTTPS_REQUIRED_MESSAGE, validate_base_url};
-use date_input::{parse_date_input, resolve_plan_range};
+use date_input::{parse_date_input, resolve_plan_range, resolve_week_range};
 use meal_type::MealType;
 use output::{CommandOutput, OutputMode, Presentation, record, write_output};
 
@@ -109,9 +109,10 @@ where
         command => command,
     };
 
+    let columns = terminal_columns(&env_vars);
     let config = Config::from_env(env_vars)?;
     let client = MealieClient::new(config)?;
-    let output = execute(&client, command, today)?;
+    let output = execute(&client, command, today, columns)?;
 
     Ok(RunResult {
         output: write_output(mode, output)?,
@@ -251,6 +252,7 @@ fn execute(
     client: &MealieClient,
     command: Command,
     today: chrono::NaiveDate,
+    columns: usize,
 ) -> Result<CommandOutput, AppError> {
     match command {
         Command::Completion { .. } => unreachable!("completion output is generated before config"),
@@ -284,6 +286,19 @@ fn execute(
                     values: plan_list(client, &from, &to, meal_type.as_ref())?,
                 })
             }
+            PlanCommand::Week { date, offset } => {
+                let (from, to) = resolve_week_range(date.as_deref(), offset, today)?;
+                let from = from.to_string();
+                let to = to.to_string();
+                Ok(CommandOutput {
+                    presentation: Presentation::PlanWeek {
+                        from: from.clone(),
+                        to: to.clone(),
+                        columns,
+                    },
+                    values: plan_list(client, &from, &to, None)?,
+                })
+            }
             PlanCommand::Set(cli::PlanSetArgs {
                 date,
                 meal_type,
@@ -307,6 +322,16 @@ fn execute(
             }),
         },
     }
+}
+
+fn terminal_columns(env_vars: &[(String, String)]) -> usize {
+    env_vars
+        .iter()
+        .rev()
+        .find(|(key, _)| key == "COLUMNS")
+        .and_then(|(_, value)| value.parse::<usize>().ok())
+        .filter(|columns| *columns > 0)
+        .unwrap_or(80)
 }
 
 fn recipes_search(
@@ -716,5 +741,168 @@ mod tests {
         let record: serde_json::Value = serde_json::from_str(&output).expect("plan record");
 
         assert_eq!(record["date"], "2026-05-12");
+    }
+
+    #[test]
+    fn fixed_today_requests_current_anchored_and_offset_weeks() {
+        let today = chrono::NaiveDate::from_ymd_opt(2026, 5, 13).expect("valid date");
+        let mut server = Server::new();
+        for (from, to) in [
+            ("2026-05-11", "2026-05-17"),
+            ("2025-12-29", "2026-01-04"),
+            ("2026-05-04", "2026-05-10"),
+            ("2026-05-18", "2026-05-24"),
+        ] {
+            server
+                .mock("GET", "/api/households/mealplans")
+                .match_query(Matcher::AllOf(vec![
+                    Matcher::UrlEncoded("start_date".into(), from.into()),
+                    Matcher::UrlEncoded("end_date".into(), to.into()),
+                    Matcher::UrlEncoded("perPage".into(), "100".into()),
+                    Matcher::UrlEncoded("orderBy".into(), "date".into()),
+                    Matcher::UrlEncoded("orderDirection".into(), "asc".into()),
+                ]))
+                .with_status(200)
+                .with_body(r#"{"items":[]}"#)
+                .expect(1)
+                .create();
+        }
+
+        let cases: &[&[&str]] = &[
+            &["mealie", "plan", "week"],
+            &["mealie", "plan", "week", "--date", "2026-01-01"],
+            &["mealie", "plan", "week", "--offset", "-1"],
+            &["mealie", "plan", "week", "--offset", "1"],
+        ];
+        for args in cases {
+            let output = run_from_with_exit_at(*args, env(&server.url()), today)
+                .expect("week request")
+                .output;
+            assert!(output.contains("Meal plan week"));
+        }
+    }
+
+    #[test]
+    fn fixed_today_week_keeps_plan_entry_records_and_renders_every_day() {
+        let today = chrono::NaiveDate::from_ymd_opt(2026, 5, 13).expect("valid date");
+        let mut server = Server::new();
+        let _mock = server
+            .mock("GET", "/api/households/mealplans")
+            .match_query(Matcher::AllOf(vec![
+                Matcher::UrlEncoded("start_date".into(), "2026-05-11".into()),
+                Matcher::UrlEncoded("end_date".into(), "2026-05-17".into()),
+                Matcher::UrlEncoded("perPage".into(), "100".into()),
+                Matcher::UrlEncoded("orderBy".into(), "date".into()),
+                Matcher::UrlEncoded("orderDirection".into(), "asc".into()),
+            ]))
+            .with_status(200)
+            .with_body(
+                r#"{"items":[
+                    {"id":1,"date":"2026-05-11","entryType":"breakfast","title":"Toast"},
+                    {"id":2,"date":"2026-05-11","entryType":"dinner","title":"Pasta"},
+                    {"id":3,"date":"2026-05-13","entryType":"dinner","recipe":{"id":"r3","name":"Curry"}}
+                ]}"#,
+            )
+            .expect(2)
+            .create();
+
+        let human = run_from_with_exit_at(["mealie", "plan", "week"], env(&server.url()), today)
+            .expect("human week output")
+            .output;
+        for weekday in [
+            "Monday",
+            "Tuesday",
+            "Wednesday",
+            "Thursday",
+            "Friday",
+            "Saturday",
+            "Sunday",
+        ] {
+            assert!(human.contains(weekday));
+        }
+        assert!(human.contains("breakfast: Toast (ID 1); dinner: Pasta (ID 2)"));
+        assert!(human.contains("Wednesday 2026-05-13  dinner: Curry (ID 3)"));
+        assert!(human.contains("Tuesday   2026-05-12  (no meals planned)"));
+
+        let structured = run_from_with_exit_at(
+            ["mealie", "--ndjson", "plan", "week"],
+            env(&server.url()),
+            today,
+        )
+        .expect("structured week output")
+        .output;
+        let records = structured
+            .lines()
+            .map(|line| serde_json::from_str::<serde_json::Value>(line).expect("plan record"))
+            .collect::<Vec<_>>();
+        assert_eq!(records.len(), 3);
+        assert!(records.iter().all(|record| record["type"] == "plan_entry"));
+        assert!(records.iter().all(|record| record.get("week").is_none()));
+        assert_eq!(records[0]["date"], "2026-05-11");
+        assert_eq!(records[0]["title"], "Toast");
+        assert_eq!(records[2]["recipe"], "Curry");
+    }
+
+    #[test]
+    fn fixed_today_week_ndjson_preserves_empty_record_without_terminal_layout_fields() {
+        let today = chrono::NaiveDate::from_ymd_opt(2026, 5, 13).expect("valid date");
+        let mut server = Server::new();
+        let _mock = server
+            .mock("GET", "/api/households/mealplans")
+            .match_query(Matcher::AllOf(vec![
+                Matcher::UrlEncoded("start_date".into(), "2026-05-11".into()),
+                Matcher::UrlEncoded("end_date".into(), "2026-05-17".into()),
+                Matcher::UrlEncoded("perPage".into(), "100".into()),
+                Matcher::UrlEncoded("orderBy".into(), "date".into()),
+                Matcher::UrlEncoded("orderDirection".into(), "asc".into()),
+            ]))
+            .with_status(200)
+            .with_body(r#"{"items":[]}"#)
+            .expect(1)
+            .create();
+
+        let output = run_from_with_exit_at(
+            ["mealie", "--ndjson", "plan", "week"],
+            env(&server.url()),
+            today,
+        )
+        .expect("empty structured week output")
+        .output;
+        let record: serde_json::Value = serde_json::from_str(&output).expect("empty plan record");
+
+        assert_eq!(record["type"], "empty");
+        assert_eq!(record["ok"], true);
+        assert_eq!(record["resource"], "plan_entry");
+        assert_eq!(record["from"], "2026-05-11");
+        assert_eq!(record["to"], "2026-05-17");
+        assert!(record.get("columns").is_none());
+        assert!(record.get("week").is_none());
+    }
+
+    #[test]
+    fn accepts_valid_terminal_width_or_uses_a_stable_fallback() {
+        assert_eq!(
+            terminal_columns(&[("COLUMNS".to_string(), "59".to_string())]),
+            59
+        );
+        assert_eq!(
+            terminal_columns(&[("COLUMNS".to_string(), "0".to_string())]),
+            80
+        );
+        assert_eq!(
+            terminal_columns(&[("COLUMNS".to_string(), "wide".to_string())]),
+            80
+        );
+    }
+
+    #[test]
+    fn rejects_week_offset_values_outside_the_signed_integer_range() {
+        let error = run_from(
+            ["mealie", "plan", "week", "--offset", "9223372036854775808"],
+            Vec::<(&str, &str)>::new(),
+        )
+        .expect_err("an offset outside i64 should be rejected before configuration");
+
+        assert_eq!(error.code(), ErrorCode::InvalidArgs);
     }
 }
