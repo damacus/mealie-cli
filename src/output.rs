@@ -101,20 +101,23 @@ fn write_human(presentation: &Presentation, values: &[Value]) -> String {
             if is_empty(values) {
                 return format!("No meal plan entries found from {from} to {to}.\n");
             }
-            table(
-                &["DATE", "MEAL", "TITLE", "RECIPE", "ID"],
-                values
-                    .iter()
-                    .map(|value| {
-                        vec![
-                            text(value, "date"),
-                            text(value, "meal"),
-                            text(value, "title"),
-                            text(value, "recipe"),
-                            text(value, "id"),
-                        ]
-                    })
-                    .collect(),
+            format!(
+                "Meal plan entries from {from} to {to}:\n{}",
+                table(
+                    &["DATE", "MEAL", "TITLE", "RECIPE", "ID"],
+                    values
+                        .iter()
+                        .map(|value| {
+                            vec![
+                                text(value, "date"),
+                                text(value, "meal"),
+                                text(value, "title"),
+                                text(value, "recipe"),
+                                text(value, "id"),
+                            ]
+                        })
+                        .collect(),
+                )
             )
         }
         Presentation::PlanSet => {

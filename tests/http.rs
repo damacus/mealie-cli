@@ -1,3 +1,4 @@
+use chrono::{Datelike, Duration, Local};
 use mealie_cli::{ErrorCode, run_from};
 use mockito::{Matcher, Server};
 
@@ -628,8 +629,75 @@ fn lists_plan_from_top_level_array() {
 
     assert_eq!(
         output,
-        "DATE        MEAL    TITLE  RECIPE  ID\n2026-05-13  dinner  Pasta  -       1\n"
+        "Meal plan entries from 2026-05-13 to 2026-05-16:\nDATE        MEAL    TITLE  RECIPE  ID\n2026-05-13  dinner  Pasta  -       1\n"
     );
+}
+
+#[test]
+fn lists_the_remainder_of_the_current_week_when_no_dates_are_given() {
+    let today = Local::now().date_naive();
+    let sunday = today + Duration::days((6 - today.weekday().num_days_from_monday()).into());
+    let mut server = Server::new();
+    let _mock = server
+        .mock("GET", "/api/households/mealplans")
+        .match_query(Matcher::AllOf(vec![
+            Matcher::UrlEncoded("start_date".into(), today.to_string()),
+            Matcher::UrlEncoded("end_date".into(), sunday.to_string()),
+            Matcher::UrlEncoded("perPage".into(), "100".into()),
+            Matcher::UrlEncoded("orderBy".into(), "date".into()),
+            Matcher::UrlEncoded("orderDirection".into(), "asc".into()),
+        ]))
+        .with_status(200)
+        .with_body(r#"{"items":[]}"#)
+        .create();
+
+    let output = run_from(["mealie", "--ndjson", "plan", "list"], env(&server.url()))
+        .expect("default plan list");
+    let record: serde_json::Value = serde_json::from_str(&output).expect("empty plan record");
+
+    assert_eq!(record["from"], today.to_string());
+    assert_eq!(record["to"], sunday.to_string());
+}
+
+#[test]
+fn plan_set_normalizes_relative_dates_before_listing_and_creating() {
+    let date = Local::now().date_naive() + Duration::days(1);
+    let date = date.to_string();
+    let mut server = Server::new();
+    let _list = server
+        .mock("GET", "/api/households/mealplans")
+        .match_query(Matcher::AllOf(vec![
+            Matcher::UrlEncoded("start_date".into(), date.clone()),
+            Matcher::UrlEncoded("end_date".into(), date.clone()),
+            Matcher::UrlEncoded("perPage".into(), "100".into()),
+            Matcher::UrlEncoded("orderBy".into(), "date".into()),
+            Matcher::UrlEncoded("orderDirection".into(), "asc".into()),
+        ]))
+        .with_status(200)
+        .with_body(r#"{"items":[]}"#)
+        .create();
+    let _create = server
+        .mock("POST", "/api/households/mealplans")
+        .match_body(Matcher::JsonString(format!(
+            r#"{{"date":"{date}","entryType":"dinner","title":"Soup","text":""}}"#
+        )))
+        .with_status(200)
+        .with_body(format!(
+            r#"{{"id":1,"date":"{date}","entryType":"dinner","title":"Soup"}}"#
+        ))
+        .create();
+
+    let output = run_from(
+        [
+            "mealie", "--ndjson", "plan", "set", "--date", "+1d", "--type", "dinner", "--title",
+            "Soup",
+        ],
+        env(&server.url()),
+    )
+    .expect("relative plan set");
+    let record: serde_json::Value = serde_json::from_str(&output).expect("plan record");
+
+    assert_eq!(record["date"], date);
 }
 
 #[test]

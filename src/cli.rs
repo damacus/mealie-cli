@@ -59,17 +59,17 @@ pub enum RecipesCommand {
 
 #[derive(Debug, Subcommand)]
 pub enum PlanCommand {
-    /// List meal plan entries in a date range
+    /// List meal plan entries for this week or a date range
     #[command(
-        after_help = "Examples:\n  mealie plan list --from 2026-05-13 --to 2026-05-16\n  mealie plan list --from 2026-05-13 --to 2026-05-16 --type dinner"
+        after_help = "Examples:\n  mealie plan list\n  mealie plan list --from today --to +3d\n  mealie plan list --from 2026-05-13 --to 2026-05-16 --type dinner\n\nDates accept YYYY-MM-DD, today, tomorrow, yesterday, +Nd/-Nd, or +Nw/-Nw.\nWith no dates, the range is today through Sunday in your local timezone."
     )]
     List {
-        /// First date to include, in YYYY-MM-DD format
+        /// First date to include (defaults to today; accepts YYYY-MM-DD or relative dates)
         #[arg(long)]
-        from: String,
-        /// Last date to include, in YYYY-MM-DD format
+        from: Option<String>,
+        /// Last date to include (defaults to this week's Sunday; accepts YYYY-MM-DD or relative dates)
         #[arg(long)]
-        to: String,
+        to: Option<String>,
         /// Only return entries for this meal type
         #[arg(long = "type", value_enum)]
         meal_type: Option<MealType>,
@@ -90,7 +90,7 @@ pub enum PlanCommand {
 
 #[derive(Debug, Args)]
 pub struct PlanSetArgs {
-    /// Date to plan, in YYYY-MM-DD format
+    /// Date to plan (YYYY-MM-DD, today, tomorrow, yesterday, +Nd/-Nd, or +Nw/-Nw)
     #[arg(long)]
     pub date: String,
     /// Meal type to plan

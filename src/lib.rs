@@ -1,6 +1,7 @@
 mod cli;
 mod client;
 mod config;
+mod date_input;
 mod error;
 mod meal_type;
 mod output;
@@ -13,6 +14,7 @@ use clap::{CommandFactory, Parser, error::ErrorKind};
 use cli::{Cli, Command, PlanCommand, RecipesCommand};
 use client::{MealieClient, PlanCreateRequest};
 use config::{Config, HTTPS_REQUIRED_MESSAGE, validate_base_url};
+use date_input::{parse_date_input, resolve_plan_range};
 use meal_type::MealType;
 use output::{CommandOutput, OutputMode, Presentation, record, write_output};
 
@@ -251,27 +253,37 @@ fn execute(client: &MealieClient, command: Command) -> Result<CommandOutput, App
                 from,
                 to,
                 meal_type,
-            } => Ok(CommandOutput {
-                presentation: Presentation::PlanList {
-                    from: from.clone(),
-                    to: to.clone(),
-                },
-                values: plan_list(client, &from, &to, meal_type.as_ref())?,
-            }),
+            } => {
+                let today = chrono::Local::now().date_naive();
+                let (from, to) = resolve_plan_range(from.as_deref(), to.as_deref(), today)?;
+                let from = from.to_string();
+                let to = to.to_string();
+                Ok(CommandOutput {
+                    presentation: Presentation::PlanList {
+                        from: from.clone(),
+                        to: to.clone(),
+                    },
+                    values: plan_list(client, &from, &to, meal_type.as_ref())?,
+                })
+            }
             PlanCommand::Set(cli::PlanSetArgs {
                 date,
                 meal_type,
                 target: cli::PlanSetTargetArgs { title, recipe },
-            }) => Ok(CommandOutput {
-                presentation: Presentation::PlanSet,
-                values: plan_set(
-                    client,
-                    &date,
-                    meal_type,
-                    title.as_deref(),
-                    recipe.as_deref(),
-                )?,
-            }),
+            }) => {
+                let today = chrono::Local::now().date_naive();
+                let date = parse_date_input("--date", &date, today)?.to_string();
+                Ok(CommandOutput {
+                    presentation: Presentation::PlanSet,
+                    values: plan_set(
+                        client,
+                        &date,
+                        meal_type,
+                        title.as_deref(),
+                        recipe.as_deref(),
+                    )?,
+                })
+            }
             PlanCommand::Delete { id } => Ok(CommandOutput {
                 presentation: Presentation::PlanDelete,
                 values: plan_delete(client, id)?,
@@ -341,14 +353,6 @@ fn plan_list(
     to: &str,
     meal_type: Option<&MealType>,
 ) -> Result<Vec<serde_json::Value>, AppError> {
-    let from_date = validate_date("--from", from)?;
-    let to_date = validate_date("--to", to)?;
-    if from_date > to_date {
-        return Err(AppError::new(
-            ErrorCode::InvalidArgs,
-            format!("--from ({from}) must be on or before --to ({to})"),
-        ));
-    }
     let entries = client.list_plan(from, to)?;
     let records: Vec<_> = entries
         .into_iter()
@@ -393,8 +397,6 @@ fn plan_set(
     title: Option<&str>,
     recipe_query: Option<&str>,
 ) -> Result<Vec<serde_json::Value>, AppError> {
-    validate_date("--date", date)?;
-
     match (title, recipe_query) {
         (Some(_), Some(_)) | (None, None) => {
             return Err(AppError::new(
@@ -485,15 +487,6 @@ fn plan_delete(client: &MealieClient, id: i64) -> Result<Vec<serde_json::Value>,
             ("recipe", serde_json::json!(deleted.recipe)),
         ],
     )])
-}
-
-fn validate_date(flag: &str, value: &str) -> Result<chrono::NaiveDate, AppError> {
-    chrono::NaiveDate::parse_from_str(value, "%Y-%m-%d").map_err(|_| {
-        AppError::new(
-            ErrorCode::InvalidArgs,
-            format!("{flag} must use YYYY-MM-DD (got \"{value}\")"),
-        )
-    })
 }
 
 #[cfg(test)]

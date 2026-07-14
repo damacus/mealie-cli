@@ -118,7 +118,14 @@ mealie recipes get butter-chicken
 List meal plans:
 
 ```text
-mealie plan list --from 2026-05-13 --to 2026-05-16
+mealie plan list
+```
+
+With no date flags, this lists from today through Sunday using the local timezone configured on the computer running the command. Date flags accept `YYYY-MM-DD`, `today`, `tomorrow`, `yesterday`, and signed offsets such as `+2d`, `-1d`, `+1w`, or `-1w`:
+
+```text
+mealie plan list --from today --to +3d
+mealie plan set --date tomorrow --type dinner --title "Bolognaise"
 ```
 
 Filter meal plans by type:
