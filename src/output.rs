@@ -168,8 +168,10 @@ fn write_status(value: &Value) -> String {
         "action required"
     };
 
+    let hint = value.get("hint").and_then(Value::as_str);
     format!(
-        "Mealie status: {summary}\nURL:            {url}\nToken:          {token}\nServer:         {server}\nAuthentication: {authentication}\n"
+        "Mealie status: {summary}\nURL:            {url}\nToken:          {token}\nServer:         {server}\nAuthentication: {authentication}\n{}",
+        hint.map_or_else(String::new, |hint| format!("Next step: {hint}\n"))
     )
 }
 

@@ -53,7 +53,9 @@ where
         Err(error)
             if matches!(
                 error.kind(),
-                ErrorKind::DisplayHelp | ErrorKind::DisplayVersion
+                ErrorKind::DisplayHelp
+                    | ErrorKind::DisplayHelpOnMissingArgumentOrSubcommand
+                    | ErrorKind::DisplayVersion
             ) =>
         {
             return Ok(RunResult {
@@ -139,6 +141,7 @@ fn status(env_vars: &[(String, String)]) -> (CommandOutput, u8) {
     });
     let url_configured = configured_url.is_some();
     let token_configured = token.is_some();
+    let hint = error.map(status_hint);
     let status = serde_json::json!({
         "ok": error.is_none(),
         "type": "status",
@@ -149,6 +152,7 @@ fn status(env_vars: &[(String, String)]) -> (CommandOutput, u8) {
         "server_reachable": server_reachable,
         "authenticated": authenticated,
         "error": error.map(ErrorCode::as_str),
+        "hint": hint,
     });
 
     (
@@ -158,6 +162,26 @@ fn status(env_vars: &[(String, String)]) -> (CommandOutput, u8) {
         },
         exit_code,
     )
+}
+
+fn status_hint(error: ErrorCode) -> &'static str {
+    match error {
+        ErrorCode::MissingConfig => {
+            "Set MEALIE_URL and MEALIE_TOKEN, then run `mealie status` again."
+        }
+        ErrorCode::InvalidArgs => {
+            "Set MEALIE_URL to a valid HTTPS URL, then run `mealie status` again."
+        }
+        ErrorCode::Authentication => {
+            "Check MEALIE_TOKEN and confirm it has access to this Mealie instance, then run `mealie status` again."
+        }
+        ErrorCode::NetworkError => {
+            "Check MEALIE_URL and confirm the Mealie server is reachable, then run `mealie status` again."
+        }
+        ErrorCode::NotFound | ErrorCode::Ambiguous | ErrorCode::ApiError => {
+            "Fix the reported problem, then run `mealie status` again."
+        }
+    }
 }
 
 fn execute(client: &MealieClient, command: Command) -> Result<CommandOutput, AppError> {
@@ -191,8 +215,7 @@ fn execute(client: &MealieClient, command: Command) -> Result<CommandOutput, App
             PlanCommand::Set(cli::PlanSetArgs {
                 date,
                 meal_type,
-                title,
-                recipe,
+                target: cli::PlanSetTargetArgs { title, recipe },
             }) => Ok(CommandOutput {
                 presentation: Presentation::PlanSet,
                 values: plan_set(
