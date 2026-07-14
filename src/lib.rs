@@ -9,7 +9,7 @@ pub use error::{AppError, ErrorCode};
 
 use std::{env, ffi::OsString};
 
-use clap::{Parser, error::ErrorKind};
+use clap::{CommandFactory, Parser, error::ErrorKind};
 use cli::{Cli, Command, PlanCommand, RecipesCommand};
 use client::{MealieClient, PlanCreateRequest};
 use config::Config;
@@ -41,15 +41,26 @@ where
         Err(error) => return Err(AppError::invalid_args(error)),
     };
     let mode = OutputMode::from_flags(cli.json, cli.ndjson, cli.quiet)?;
+    let command = match cli.command {
+        Command::Completion { shell } => {
+            let mut command = Cli::command();
+            let mut output = Vec::new();
+            clap_complete::generate(shell, &mut command, "mealie", &mut output);
+            return String::from_utf8(output)
+                .map_err(|error| AppError::new(ErrorCode::ApiError, error.to_string()));
+        }
+        command => command,
+    };
     let config = Config::from_env(env_vars)?;
     let client = MealieClient::new(config)?;
-    let output = execute(&client, cli.command)?;
+    let output = execute(&client, command)?;
 
     write_output(mode, output)
 }
 
 fn execute(client: &MealieClient, command: Command) -> Result<CommandOutput, AppError> {
     match command {
+        Command::Completion { .. } => unreachable!("completion output is generated before config"),
         Command::Recipes(recipes) => match recipes {
             RecipesCommand::Search { query, limit } => Ok(CommandOutput {
                 presentation: Presentation::RecipeSearch {
@@ -304,6 +315,16 @@ mod tests {
         .expect_err("config should be required");
 
         assert_eq!(error.code(), ErrorCode::MissingConfig);
+    }
+
+    #[test]
+    fn generates_fish_completion_without_configuration() {
+        let output = run_from(["mealie", "completion", "fish"], Vec::<(&str, &str)>::new())
+            .expect("fish completion");
+
+        assert!(output.contains("complete -c mealie"));
+        assert!(output.contains("completion"));
+        assert!(output.contains("quiet"));
     }
 
     #[test]
