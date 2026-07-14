@@ -2,6 +2,10 @@ use std::fmt;
 
 use crate::{AppError, ErrorCode};
 
+pub(crate) const INVALID_URL_MESSAGE: &str = "MEALIE_URL must be a valid URL";
+pub(crate) const HTTPS_REQUIRED_MESSAGE: &str =
+    "MEALIE_URL must use HTTPS; set USE_INSECURE_HTTP=yes to allow HTTP";
+
 #[derive(Clone)]
 pub struct Config {
     pub base_url: String,
@@ -60,11 +64,11 @@ pub(crate) fn validate_base_url(
 ) -> Result<String, AppError> {
     let base_url = base_url.trim().trim_end_matches('/').to_string();
     let url = reqwest::Url::parse(&base_url)
-        .map_err(|_| AppError::new(ErrorCode::InvalidArgs, "MEALIE_URL must be a valid URL"))?;
+        .map_err(|_| AppError::new(ErrorCode::InvalidArgs, INVALID_URL_MESSAGE))?;
     if url.scheme() != "https" && !(allow_insecure_http && url.scheme() == "http") {
         return Err(AppError::new(
             ErrorCode::InvalidArgs,
-            "MEALIE_URL must use HTTPS; set USE_INSECURE_HTTP=yes to allow HTTP",
+            HTTPS_REQUIRED_MESSAGE,
         ));
     }
 
