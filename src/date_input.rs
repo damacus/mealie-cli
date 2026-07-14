@@ -51,9 +51,9 @@ pub(crate) fn resolve_plan_range(
 
     let (from, to) = match (from, to) {
         (Some(from), Some(to)) => (from, to),
-        (Some(from), None) => (from, sunday_of_week(from)),
-        (None, Some(to)) => (monday_of_week(to), to),
-        (None, None) => (today, sunday_of_week(today)),
+        (Some(from), None) => (from, sunday_of_week(from)?),
+        (None, Some(to)) => (monday_of_week(to)?, to),
+        (None, None) => (today, sunday_of_week(today)?),
     };
 
     if from > to {
@@ -67,26 +67,38 @@ pub(crate) fn resolve_plan_range(
 }
 
 fn parse_signed_offset(value: &str, today: NaiveDate) -> Option<NaiveDate> {
-    let (number, unit) = value.split_at(value.len().checked_sub(1)?);
-    let days = match unit {
-        "d" => number.parse::<i64>().ok()?,
-        "w" => number.parse::<i64>().ok()?.checked_mul(7)?,
+    let (unit_start, unit) = value.char_indices().next_back()?;
+    let number = &value[..unit_start];
+    let duration = match unit {
+        'd' => Duration::try_days(number.parse::<i64>().ok()?),
+        'w' => Duration::try_weeks(number.parse::<i64>().ok()?),
         _ => return None,
-    };
+    }?;
 
     if !matches!(number.as_bytes().first(), Some(b'+') | Some(b'-')) {
         return None;
     }
 
-    today.checked_add_signed(Duration::days(days))
+    today.checked_add_signed(duration)
 }
 
-fn monday_of_week(date: NaiveDate) -> NaiveDate {
-    date - Duration::days(date.weekday().num_days_from_monday().into())
+fn monday_of_week(date: NaiveDate) -> Result<NaiveDate, AppError> {
+    date.checked_sub_signed(Duration::days(date.weekday().num_days_from_monday().into()))
+        .ok_or_else(|| week_completion_error(date))
 }
 
-fn sunday_of_week(date: NaiveDate) -> NaiveDate {
-    date + Duration::days((6 - date.weekday().num_days_from_monday()).into())
+fn sunday_of_week(date: NaiveDate) -> Result<NaiveDate, AppError> {
+    date.checked_add_signed(Duration::days(
+        (6 - date.weekday().num_days_from_monday()).into(),
+    ))
+    .ok_or_else(|| week_completion_error(date))
+}
+
+fn week_completion_error(date: NaiveDate) -> AppError {
+    AppError::new(
+        ErrorCode::InvalidArgs,
+        format!("cannot complete the ISO week containing {date}"),
+    )
 }
 
 fn date_error(flag: &str, value: &str) -> AppError {
@@ -136,7 +148,7 @@ mod tests {
     #[test]
     fn rejects_invalid_or_locale_dependent_dates() {
         let today = date("2026-05-13");
-        for value in ["2026-99-99", "next Friday", "+d", "1d", "+1m", " +1d"] {
+        for value in ["2026-99-99", "next Friday", "+d", "1d", "+1m", " +1d", "é"] {
             let error = parse_date_input("--date", value, today).expect_err("invalid date input");
             assert_eq!(error.code(), ErrorCode::InvalidArgs);
             assert!(error.to_string().contains("YYYY-MM-DD"));
@@ -170,5 +182,31 @@ mod tests {
             error.to_string(),
             "--from (2026-05-14) must be on or before --to (2026-05-12)"
         );
+    }
+
+    #[test]
+    fn rejects_offsets_that_overflow_chrono_durations() {
+        let today = date("2026-05-13");
+        for value in [
+            format!("{}d", i64::MIN),
+            format!("{}d", i64::MAX),
+            format!("{}w", i64::MIN),
+            format!("{}w", i64::MAX),
+        ] {
+            let error = parse_date_input("--date", &value, today)
+                .expect_err("out-of-range offset should be rejected");
+            assert_eq!(error.code(), ErrorCode::InvalidArgs);
+        }
+    }
+
+    #[test]
+    fn rejects_iso_week_completion_past_chrono_boundaries() {
+        let max_error = resolve_plan_range(Some(&NaiveDate::MAX.to_string()), None, NaiveDate::MIN)
+            .expect_err("MAX date cannot be completed through Sunday");
+        let min_error = resolve_plan_range(None, Some(&NaiveDate::MIN.to_string()), NaiveDate::MAX)
+            .expect_err("MIN date cannot be completed back through Monday");
+
+        assert_eq!(max_error.code(), ErrorCode::InvalidArgs);
+        assert_eq!(min_error.code(), ErrorCode::InvalidArgs);
     }
 }
