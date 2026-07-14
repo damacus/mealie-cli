@@ -100,6 +100,29 @@ impl MealieClient {
         Ok(Self { config, http })
     }
 
+    pub fn check_authentication(&self) -> Result<(), AppError> {
+        let response = self
+            .http
+            .get(self.config.endpoint("/api/users/self"))
+            .bearer_auth(&self.config.token)
+            .send()
+            .map_err(AppError::from)?;
+
+        if response.status().is_success() {
+            return Ok(());
+        }
+
+        let status = response.status();
+        let code = match status {
+            StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN => ErrorCode::Authentication,
+            _ => ErrorCode::ApiError,
+        };
+        Err(AppError::new(
+            code,
+            format!("status check failed (HTTP {status})"),
+        ))
+    }
+
     pub fn search_recipes(&self, query: &str, limit: u32) -> Result<Vec<Recipe>, AppError> {
         let value = self
             .http

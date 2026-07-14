@@ -44,15 +44,7 @@ impl Config {
             .as_deref()
             .map(str::trim)
             .is_some_and(|value| value.eq_ignore_ascii_case("yes"));
-        let base_url = base_url.trim_end_matches('/').to_string();
-        let url = reqwest::Url::parse(&base_url)
-            .map_err(|_| AppError::new(ErrorCode::InvalidArgs, "MEALIE_URL must be a valid URL"))?;
-        if url.scheme() != "https" && !(allow_insecure_http && url.scheme() == "http") {
-            return Err(AppError::new(
-                ErrorCode::InvalidArgs,
-                "MEALIE_URL must use HTTPS; set USE_INSECURE_HTTP=yes to allow HTTP",
-            ));
-        }
+        let base_url = validate_base_url(&base_url, allow_insecure_http)?;
 
         Ok(Self { base_url, token })
     }
@@ -60,6 +52,23 @@ impl Config {
     pub fn endpoint(&self, path: &str) -> String {
         format!("{}{}", self.base_url, path)
     }
+}
+
+pub(crate) fn validate_base_url(
+    base_url: &str,
+    allow_insecure_http: bool,
+) -> Result<String, AppError> {
+    let base_url = base_url.trim().trim_end_matches('/').to_string();
+    let url = reqwest::Url::parse(&base_url)
+        .map_err(|_| AppError::new(ErrorCode::InvalidArgs, "MEALIE_URL must be a valid URL"))?;
+    if url.scheme() != "https" && !(allow_insecure_http && url.scheme() == "http") {
+        return Err(AppError::new(
+            ErrorCode::InvalidArgs,
+            "MEALIE_URL must use HTTPS; set USE_INSECURE_HTTP=yes to allow HTTP",
+        ));
+    }
+
+    Ok(base_url)
 }
 
 fn required(name: &str, value: Option<String>) -> Result<String, AppError> {

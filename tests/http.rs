@@ -10,6 +10,52 @@ fn env(url: &str) -> Vec<(&str, &str)> {
 }
 
 #[test]
+fn status_checks_configuration_connectivity_and_authentication() {
+    let mut server = Server::new();
+    let _mock = server
+        .mock("GET", "/api/users/self")
+        .match_header("authorization", "Bearer secret-token")
+        .with_status(200)
+        .with_body(r#"{"id":"user-id"}"#)
+        .create();
+
+    let output = run_from(["mealie", "status"], env(&server.url())).expect("status output");
+
+    assert_eq!(
+        output,
+        format!(
+            "Mealie status: ready\nURL:            configured and valid ({})\nToken:          configured\nServer:         reachable\nAuthentication: successful\n",
+            server.url()
+        )
+    );
+}
+
+#[test]
+fn status_json_has_a_stable_schema_without_the_token() {
+    let mut server = Server::new();
+    let _mock = server
+        .mock("GET", "/api/users/self")
+        .match_header("authorization", "Bearer secret-token")
+        .with_status(401)
+        .create();
+
+    let output =
+        run_from(["mealie", "status", "--json"], env(&server.url())).expect("status output");
+    let values: serde_json::Value = serde_json::from_str(&output).expect("status JSON");
+    let status = &values[0];
+
+    assert_eq!(status["ok"], false);
+    assert_eq!(status["type"], "status");
+    assert_eq!(status["url_configured"], true);
+    assert_eq!(status["url_valid"], true);
+    assert_eq!(status["token_configured"], true);
+    assert_eq!(status["server_reachable"], true);
+    assert_eq!(status["authenticated"], false);
+    assert_eq!(status["error"], "authentication");
+    assert!(!output.contains("secret-token"));
+}
+
+#[test]
 fn searches_recipes() {
     let mut server = Server::new();
     let _mock = server

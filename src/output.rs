@@ -27,6 +27,7 @@ impl OutputMode {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Presentation {
+    Status,
     RecipeSearch { query: String },
     RecipeDetails,
     PlanList { from: String, to: String },
@@ -73,6 +74,7 @@ pub fn write_output(mode: OutputMode, output: CommandOutput) -> Result<String, A
 
 fn write_human(presentation: &Presentation, values: &[Value]) -> String {
     match presentation {
+        Presentation::Status => write_status(&values[0]),
         Presentation::RecipeSearch { query } => {
             if is_empty(values) {
                 return format!("No recipes found for \"{query}\".\n");
@@ -142,6 +144,40 @@ fn write_human(presentation: &Presentation, values: &[Value]) -> String {
         Presentation::PlanDelete => {
             format!("Deleted meal plan entry {}.\n", text(&values[0], "id"))
         }
+    }
+}
+
+fn write_status(value: &Value) -> String {
+    let url = match value.get("url").and_then(Value::as_str) {
+        Some(url) if value.get("url_valid").and_then(Value::as_bool) == Some(true) => {
+            format!("configured and valid ({url})")
+        }
+        Some(_) => "configured but invalid".to_string(),
+        None => "not configured".to_string(),
+    };
+    let token = if value.get("token_configured").and_then(Value::as_bool) == Some(true) {
+        "configured"
+    } else {
+        "not configured"
+    };
+    let server = optional_check(value, "server_reachable", "reachable", "unreachable");
+    let authentication = optional_check(value, "authenticated", "successful", "failed");
+    let summary = if value.get("ok").and_then(Value::as_bool) == Some(true) {
+        "ready"
+    } else {
+        "action required"
+    };
+
+    format!(
+        "Mealie status: {summary}\nURL:            {url}\nToken:          {token}\nServer:         {server}\nAuthentication: {authentication}\n"
+    )
+}
+
+fn optional_check(value: &Value, key: &str, yes: &str, no: &str) -> String {
+    match value.get(key) {
+        Some(Value::Bool(true)) => yes.to_string(),
+        Some(Value::Bool(false)) => no.to_string(),
+        _ => "not checked".to_string(),
     }
 }
 

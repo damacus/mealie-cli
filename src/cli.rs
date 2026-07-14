@@ -8,7 +8,7 @@ use crate::meal_type::MealType;
     name = "mealie",
     version,
     about = "Manage recipes and meal plans in Mealie",
-    after_help = "Examples:\n  mealie recipes search \"pesto chicken\"\n  mealie plan list --from 2026-05-13 --to 2026-05-16\n  mealie plan set --date 2026-05-16 --type dinner --recipe pesto-chicken"
+    after_help = "Examples:\n  mealie status\n  mealie recipes search \"pesto chicken\"\n  mealie plan list --from 2026-05-13 --to 2026-05-16\n  mealie plan set --date 2026-05-16 --type dinner --recipe pesto-chicken"
 )]
 pub struct Cli {
     #[arg(long, global = true, conflicts_with_all = ["ndjson", "quiet"], help = "Output one pretty JSON array")]
@@ -26,6 +26,8 @@ pub enum Command {
     Completion {
         shell: Shell,
     },
+    /// Check configuration, connectivity, and authentication
+    Status,
     #[command(subcommand, visible_alias = "recipe")]
     Recipes(RecipesCommand),
     #[command(subcommand, visible_alias = "meal-plan")]

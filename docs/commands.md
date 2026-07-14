@@ -1,5 +1,16 @@
 # Commands
 
+## Status
+
+Check whether the URL and token are configured, then verify connectivity and authentication:
+
+```bash
+mealie status
+```
+
+The token is never printed. Checks that cannot run are reported as `not checked`.
+Use `--json` or `--ndjson` for a stable status record suitable for automation.
+
 ## Recipes
 
 Search recipes:
