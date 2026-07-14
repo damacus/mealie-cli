@@ -647,14 +647,46 @@ mod tests {
     }
 
     #[test]
-    fn fixed_today_normalizes_relative_plan_set_requests() {
+    fn fixed_today_normalizes_space_separated_negative_relative_plan_list_requests() {
+        let today = chrono::NaiveDate::from_ymd_opt(2026, 5, 13).expect("valid date");
+        let mut server = Server::new();
+        let _mock = server
+            .mock("GET", "/api/households/mealplans")
+            .match_query(Matcher::AllOf(vec![
+                Matcher::UrlEncoded("start_date".into(), "2026-05-06".into()),
+                Matcher::UrlEncoded("end_date".into(), "2026-05-12".into()),
+                Matcher::UrlEncoded("perPage".into(), "100".into()),
+                Matcher::UrlEncoded("orderBy".into(), "date".into()),
+                Matcher::UrlEncoded("orderDirection".into(), "asc".into()),
+            ]))
+            .with_status(200)
+            .with_body(r#"{"items":[]}"#)
+            .create();
+
+        let output = run_from_with_exit_at(
+            [
+                "mealie", "--ndjson", "plan", "list", "--from", "-1w", "--to", "-1d",
+            ],
+            env(&server.url()),
+            today,
+        )
+        .expect("negative relative plan list")
+        .output;
+        let record: serde_json::Value = serde_json::from_str(&output).expect("empty plan record");
+
+        assert_eq!(record["from"], "2026-05-06");
+        assert_eq!(record["to"], "2026-05-12");
+    }
+
+    #[test]
+    fn fixed_today_normalizes_space_separated_negative_relative_plan_set_requests() {
         let today = chrono::NaiveDate::from_ymd_opt(2026, 5, 13).expect("valid date");
         let mut server = Server::new();
         let _list = server
             .mock("GET", "/api/households/mealplans")
             .match_query(Matcher::AllOf(vec![
-                Matcher::UrlEncoded("start_date".into(), "2026-05-14".into()),
-                Matcher::UrlEncoded("end_date".into(), "2026-05-14".into()),
+                Matcher::UrlEncoded("start_date".into(), "2026-05-12".into()),
+                Matcher::UrlEncoded("end_date".into(), "2026-05-12".into()),
                 Matcher::UrlEncoded("perPage".into(), "100".into()),
                 Matcher::UrlEncoded("orderBy".into(), "date".into()),
                 Matcher::UrlEncoded("orderDirection".into(), "asc".into()),
@@ -665,15 +697,15 @@ mod tests {
         let _create = server
             .mock("POST", "/api/households/mealplans")
             .match_body(Matcher::JsonString(
-                r#"{"date":"2026-05-14","entryType":"dinner","title":"Soup","text":""}"#.into(),
+                r#"{"date":"2026-05-12","entryType":"dinner","title":"Soup","text":""}"#.into(),
             ))
             .with_status(200)
-            .with_body(r#"{"id":1,"date":"2026-05-14","entryType":"dinner","title":"Soup"}"#)
+            .with_body(r#"{"id":1,"date":"2026-05-12","entryType":"dinner","title":"Soup"}"#)
             .create();
 
         let output = run_from_with_exit_at(
             [
-                "mealie", "--ndjson", "plan", "set", "--date", "+1d", "--type", "dinner",
+                "mealie", "--ndjson", "plan", "set", "--date", "-1d", "--type", "dinner",
                 "--title", "Soup",
             ],
             env(&server.url()),
@@ -683,6 +715,6 @@ mod tests {
         .output;
         let record: serde_json::Value = serde_json::from_str(&output).expect("plan record");
 
-        assert_eq!(record["date"], "2026-05-14");
+        assert_eq!(record["date"], "2026-05-12");
     }
 }

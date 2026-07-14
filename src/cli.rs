@@ -65,10 +65,10 @@ pub enum PlanCommand {
     )]
     List {
         /// First date to include (defaults to today; accepts YYYY-MM-DD or relative dates)
-        #[arg(long)]
+        #[arg(long, allow_hyphen_values = true)]
         from: Option<String>,
         /// Last date to include (defaults to this week's Sunday; accepts YYYY-MM-DD or relative dates)
-        #[arg(long)]
+        #[arg(long, allow_hyphen_values = true)]
         to: Option<String>,
         /// Only return entries for this meal type
         #[arg(long = "type", value_enum)]
@@ -91,7 +91,7 @@ pub enum PlanCommand {
 #[derive(Debug, Args)]
 pub struct PlanSetArgs {
     /// Date to plan (YYYY-MM-DD, today, tomorrow, yesterday, +Nd/-Nd, or +Nw/-Nw)
-    #[arg(long)]
+    #[arg(long, allow_hyphen_values = true)]
     pub date: String,
     /// Meal type to plan
     #[arg(long = "type", value_enum)]
@@ -109,4 +109,40 @@ pub struct PlanSetTargetArgs {
     /// Recipe slug, or an exact case-insensitive recipe name to add to the plan
     #[arg(long)]
     pub recipe: Option<String>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use clap::error::ErrorKind;
+
+    #[test]
+    fn parses_space_separated_negative_relative_values() {
+        let cli = Cli::try_parse_from(["mealie", "plan", "list", "--from", "-1d", "--to", "-1w"])
+            .expect("negative relative list dates should parse");
+
+        let Command::Plan(PlanCommand::List { from, to, .. }) = cli.command else {
+            panic!("expected plan list command");
+        };
+        assert_eq!(from.as_deref(), Some("-1d"));
+        assert_eq!(to.as_deref(), Some("-1w"));
+
+        let cli = Cli::try_parse_from([
+            "mealie", "plan", "set", "--date", "-1d", "--type", "dinner", "--title", "Soup",
+        ])
+        .expect("negative relative set date should parse");
+
+        let Command::Plan(PlanCommand::Set(args)) = cli.command else {
+            panic!("expected plan set command");
+        };
+        assert_eq!(args.date, "-1d");
+    }
+
+    #[test]
+    fn rejects_unknown_flags() {
+        let error = Cli::try_parse_from(["mealie", "plan", "list", "--unknown"])
+            .expect_err("unknown flags must remain rejected");
+
+        assert_eq!(error.kind(), ErrorKind::UnknownArgument);
+    }
 }

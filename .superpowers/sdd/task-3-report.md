@@ -13,6 +13,23 @@ Tests run:
 
 Concerns: none.
 
+## Review fix: space-separated negative relative values
+
+Added `allow_hyphen_values = true` only to the three meal-plan date arguments (`--from`,
+`--to`, and `--date`). Added Clap-boundary coverage for space-separated `-1d`/`-1w` values,
+unknown-flag rejection, and fixed-today HTTP execution coverage for list and set commands.
+
+Verification results:
+
+- `cargo test cli::tests:: --lib` (2 passed)
+- `cargo test fixed_today_normalizes_space_separated_negative_relative --lib` (2 passed)
+- `cargo fmt --all -- --check` (passed)
+- `cargo test` (67 passed)
+- `cargo clippy --all-targets --all-features -- -D warnings` (passed)
+- `git diff --check` (passed)
+
+Concerns: none.
+
 ## Review fixes
 
 Addressed review-found panic paths and moved relative-date HTTP coverage behind one private,
