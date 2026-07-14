@@ -129,25 +129,55 @@ impl MealieClient {
     }
 
     pub fn list_plan(&self, from: &str, to: &str) -> Result<Vec<PlanEntry>, AppError> {
-        let value = self
-            .http
-            .get(self.config.endpoint("/api/households/mealplans"))
-            .bearer_auth(&self.config.token)
-            .query(&[
-                ("start_date", from),
-                ("end_date", to),
-                ("perPage", "100"),
-                ("orderBy", "date"),
-                ("orderDirection", "asc"),
-            ])
-            .send()
-            .map_err(AppError::from)
-            .and_then(|response| checked_json(response, "list meal plans"))?;
+        const PAGE_SIZE: usize = 100;
 
-        collection_items(&value)
-            .iter()
-            .map(plan_entry_from_value)
-            .collect()
+        let mut page = 1;
+        let mut entries = Vec::new();
+
+        loop {
+            let mut query = vec![
+                ("start_date", from.to_string()),
+                ("end_date", to.to_string()),
+                ("perPage", PAGE_SIZE.to_string()),
+                ("orderBy", "date".to_string()),
+                ("orderDirection", "asc".to_string()),
+            ];
+            if page > 1 {
+                query.push(("page", page.to_string()));
+            }
+
+            let value = self
+                .http
+                .get(self.config.endpoint("/api/households/mealplans"))
+                .bearer_auth(&self.config.token)
+                .query(&query)
+                .send()
+                .map_err(AppError::from)
+                .and_then(|response| checked_json(response, "list meal plans"))?;
+
+            let items = collection_items(&value);
+            let item_count = items.len();
+            entries.extend(
+                items
+                    .iter()
+                    .map(plan_entry_from_value)
+                    .collect::<Result<Vec<_>, _>>()?,
+            );
+
+            let total_pages = value
+                .get("total_pages")
+                .or_else(|| value.get("totalPages"))
+                .and_then(Value::as_u64);
+            if total_pages.is_some_and(|last_page| page >= last_page as usize)
+                || total_pages.is_none() && item_count < PAGE_SIZE
+            {
+                break;
+            }
+
+            page += 1;
+        }
+
+        Ok(entries)
     }
 
     pub fn delete_plan(&self, id: i64) -> Result<DeletedPlanEntry, AppError> {
