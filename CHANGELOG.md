@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.1.4](https://github.com/damacus/mealie-cli/compare/v0.1.3...v0.1.4) (2026-07-14)
+
+
+### Features
+
+* add shell completions ([#24](https://github.com/damacus/mealie-cli/issues/24)) ([77143d4](https://github.com/damacus/mealie-cli/commit/77143d4da7bb124ae4986c92f013c0f7204137ba))
+* add status command ([#26](https://github.com/damacus/mealie-cli/issues/26)) ([0060989](https://github.com/damacus/mealie-cli/commit/0060989aedd5f6fbe5924f20ced3811b13ce2cf9))
+
+
+### Bug Fixes
+
+* make plan replacement safe ([#22](https://github.com/damacus/mealie-cli/issues/22)) ([f070c32](https://github.com/damacus/mealie-cli/commit/f070c32701aa3179e2d76f5a60fb486979baceee))
+* paginate meal plan results ([#23](https://github.com/damacus/mealie-cli/issues/23)) ([103c7c8](https://github.com/damacus/mealie-cli/commit/103c7c8648cd484318f6ab93cecf43e777413a84))
+
 ## [0.1.3](https://github.com/damacus/mealie-cli/compare/v0.1.2...v0.1.3) (2026-07-13)
 
 
