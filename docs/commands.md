@@ -32,10 +32,17 @@ mealie recipes get butter-chicken
 List entries:
 
 ```bash
-mealie plan list --from 2026-05-13 --to 2026-05-16
+mealie plan list
 ```
 
-The start date must be on or before the end date. `meal-plan` is an alias for `plan`.
+Without a date flag, `plan list` uses today through Sunday in the local timezone of the computer running the command. With only `--from`, it uses that date through the Sunday of the same ISO week; with only `--to`, it uses the Monday of that ISO week through that date. The resolved start date must be on or before the resolved end date. `meal-plan` is an alias for `plan`.
+
+Dates accept ISO `YYYY-MM-DD`, `today`, `tomorrow`, `yesterday`, and signed offsets: `+Nd`, `-Nd`, `+Nw`, or `-Nw`. For example:
+
+```bash
+mealie plan list --from today --to +3d
+mealie plan set --date tomorrow --type dinner --title "Bolognaise"
+```
 
 Filter by meal type:
 

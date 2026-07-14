@@ -628,7 +628,7 @@ fn lists_plan_from_top_level_array() {
 
     assert_eq!(
         output,
-        "DATE        MEAL    TITLE  RECIPE  ID\n2026-05-13  dinner  Pasta  -       1\n"
+        "Meal plan entries from 2026-05-13 to 2026-05-16:\nDATE        MEAL    TITLE  RECIPE  ID\n2026-05-13  dinner  Pasta  -       1\n"
     );
 }
 

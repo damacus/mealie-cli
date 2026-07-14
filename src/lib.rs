@@ -1,6 +1,7 @@
 mod cli;
 mod client;
 mod config;
+mod date_input;
 mod error;
 mod meal_type;
 mod output;
@@ -13,6 +14,7 @@ use clap::{CommandFactory, Parser, error::ErrorKind};
 use cli::{Cli, Command, PlanCommand, RecipesCommand};
 use client::{MealieClient, PlanCreateRequest};
 use config::{Config, HTTPS_REQUIRED_MESSAGE, validate_base_url};
+use date_input::{parse_date_input, resolve_plan_range};
 use meal_type::MealType;
 use output::{CommandOutput, OutputMode, Presentation, record, write_output};
 
@@ -41,6 +43,21 @@ where
 }
 
 fn run_from_with_exit<I, T, E, K, V>(args: I, env_vars: E) -> Result<RunResult, AppError>
+where
+    I: IntoIterator<Item = T>,
+    T: Into<OsString> + Clone,
+    E: IntoIterator<Item = (K, V)>,
+    K: Into<String>,
+    V: Into<String>,
+{
+    run_from_with_exit_at(args, env_vars, chrono::Local::now().date_naive())
+}
+
+fn run_from_with_exit_at<I, T, E, K, V>(
+    args: I,
+    env_vars: E,
+    today: chrono::NaiveDate,
+) -> Result<RunResult, AppError>
 where
     I: IntoIterator<Item = T>,
     T: Into<OsString> + Clone,
@@ -94,7 +111,7 @@ where
 
     let config = Config::from_env(env_vars)?;
     let client = MealieClient::new(config)?;
-    let output = execute(&client, command)?;
+    let output = execute(&client, command, today)?;
 
     Ok(RunResult {
         output: write_output(mode, output)?,
@@ -230,7 +247,11 @@ fn status_hint(failure: StatusFailure) -> &'static str {
     }
 }
 
-fn execute(client: &MealieClient, command: Command) -> Result<CommandOutput, AppError> {
+fn execute(
+    client: &MealieClient,
+    command: Command,
+    today: chrono::NaiveDate,
+) -> Result<CommandOutput, AppError> {
     match command {
         Command::Completion { .. } => unreachable!("completion output is generated before config"),
         Command::Status => unreachable!("status is handled before client creation"),
@@ -251,27 +272,35 @@ fn execute(client: &MealieClient, command: Command) -> Result<CommandOutput, App
                 from,
                 to,
                 meal_type,
-            } => Ok(CommandOutput {
-                presentation: Presentation::PlanList {
-                    from: from.clone(),
-                    to: to.clone(),
-                },
-                values: plan_list(client, &from, &to, meal_type.as_ref())?,
-            }),
+            } => {
+                let (from, to) = resolve_plan_range(from.as_deref(), to.as_deref(), today)?;
+                let from = from.to_string();
+                let to = to.to_string();
+                Ok(CommandOutput {
+                    presentation: Presentation::PlanList {
+                        from: from.clone(),
+                        to: to.clone(),
+                    },
+                    values: plan_list(client, &from, &to, meal_type.as_ref())?,
+                })
+            }
             PlanCommand::Set(cli::PlanSetArgs {
                 date,
                 meal_type,
                 target: cli::PlanSetTargetArgs { title, recipe },
-            }) => Ok(CommandOutput {
-                presentation: Presentation::PlanSet,
-                values: plan_set(
-                    client,
-                    &date,
-                    meal_type,
-                    title.as_deref(),
-                    recipe.as_deref(),
-                )?,
-            }),
+            }) => {
+                let date = parse_date_input("--date", &date, today)?.to_string();
+                Ok(CommandOutput {
+                    presentation: Presentation::PlanSet,
+                    values: plan_set(
+                        client,
+                        &date,
+                        meal_type,
+                        title.as_deref(),
+                        recipe.as_deref(),
+                    )?,
+                })
+            }
             PlanCommand::Delete { id } => Ok(CommandOutput {
                 presentation: Presentation::PlanDelete,
                 values: plan_delete(client, id)?,
@@ -341,14 +370,6 @@ fn plan_list(
     to: &str,
     meal_type: Option<&MealType>,
 ) -> Result<Vec<serde_json::Value>, AppError> {
-    let from_date = validate_date("--from", from)?;
-    let to_date = validate_date("--to", to)?;
-    if from_date > to_date {
-        return Err(AppError::new(
-            ErrorCode::InvalidArgs,
-            format!("--from ({from}) must be on or before --to ({to})"),
-        ));
-    }
     let entries = client.list_plan(from, to)?;
     let records: Vec<_> = entries
         .into_iter()
@@ -393,8 +414,6 @@ fn plan_set(
     title: Option<&str>,
     recipe_query: Option<&str>,
 ) -> Result<Vec<serde_json::Value>, AppError> {
-    validate_date("--date", date)?;
-
     match (title, recipe_query) {
         (Some(_), Some(_)) | (None, None) => {
             return Err(AppError::new(
@@ -487,21 +506,17 @@ fn plan_delete(client: &MealieClient, id: i64) -> Result<Vec<serde_json::Value>,
     )])
 }
 
-fn validate_date(flag: &str, value: &str) -> Result<chrono::NaiveDate, AppError> {
-    chrono::NaiveDate::parse_from_str(value, "%Y-%m-%d").map_err(|_| {
-        AppError::new(
-            ErrorCode::InvalidArgs,
-            format!("{flag} must use YYYY-MM-DD (got \"{value}\")"),
-        )
-    })
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use mockito::{Matcher, Server};
 
     fn env(url: &str) -> Vec<(&str, &str)> {
-        vec![("MEALIE_URL", url), ("MEALIE_TOKEN", "secret-token")]
+        vec![
+            ("MEALIE_URL", url),
+            ("MEALIE_TOKEN", "secret-token"),
+            ("USE_INSECURE_HTTP", "yes"),
+        ]
     }
 
     #[test]
@@ -599,5 +614,107 @@ mod tests {
         .expect("quiet output");
 
         assert_eq!(output, "10\n11\n");
+    }
+
+    #[test]
+    fn fixed_today_requests_the_remainder_of_its_week() {
+        let today = chrono::NaiveDate::from_ymd_opt(2026, 5, 13).expect("valid date");
+        let mut server = Server::new();
+        let _mock = server
+            .mock("GET", "/api/households/mealplans")
+            .match_query(Matcher::AllOf(vec![
+                Matcher::UrlEncoded("start_date".into(), "2026-05-13".into()),
+                Matcher::UrlEncoded("end_date".into(), "2026-05-17".into()),
+                Matcher::UrlEncoded("perPage".into(), "100".into()),
+                Matcher::UrlEncoded("orderBy".into(), "date".into()),
+                Matcher::UrlEncoded("orderDirection".into(), "asc".into()),
+            ]))
+            .with_status(200)
+            .with_body(r#"{"items":[]}"#)
+            .create();
+
+        let output = run_from_with_exit_at(
+            ["mealie", "--ndjson", "plan", "list"],
+            env(&server.url()),
+            today,
+        )
+        .expect("default plan list")
+        .output;
+        let record: serde_json::Value = serde_json::from_str(&output).expect("empty plan record");
+
+        assert_eq!(record["from"], "2026-05-13");
+        assert_eq!(record["to"], "2026-05-17");
+    }
+
+    #[test]
+    fn fixed_today_normalizes_space_separated_negative_relative_plan_list_requests() {
+        let today = chrono::NaiveDate::from_ymd_opt(2026, 5, 13).expect("valid date");
+        let mut server = Server::new();
+        let _mock = server
+            .mock("GET", "/api/households/mealplans")
+            .match_query(Matcher::AllOf(vec![
+                Matcher::UrlEncoded("start_date".into(), "2026-05-06".into()),
+                Matcher::UrlEncoded("end_date".into(), "2026-05-12".into()),
+                Matcher::UrlEncoded("perPage".into(), "100".into()),
+                Matcher::UrlEncoded("orderBy".into(), "date".into()),
+                Matcher::UrlEncoded("orderDirection".into(), "asc".into()),
+            ]))
+            .with_status(200)
+            .with_body(r#"{"items":[]}"#)
+            .create();
+
+        let output = run_from_with_exit_at(
+            [
+                "mealie", "--ndjson", "plan", "list", "--from", "-1w", "--to", "-1d",
+            ],
+            env(&server.url()),
+            today,
+        )
+        .expect("negative relative plan list")
+        .output;
+        let record: serde_json::Value = serde_json::from_str(&output).expect("empty plan record");
+
+        assert_eq!(record["from"], "2026-05-06");
+        assert_eq!(record["to"], "2026-05-12");
+    }
+
+    #[test]
+    fn fixed_today_normalizes_space_separated_negative_relative_plan_set_requests() {
+        let today = chrono::NaiveDate::from_ymd_opt(2026, 5, 13).expect("valid date");
+        let mut server = Server::new();
+        let _list = server
+            .mock("GET", "/api/households/mealplans")
+            .match_query(Matcher::AllOf(vec![
+                Matcher::UrlEncoded("start_date".into(), "2026-05-12".into()),
+                Matcher::UrlEncoded("end_date".into(), "2026-05-12".into()),
+                Matcher::UrlEncoded("perPage".into(), "100".into()),
+                Matcher::UrlEncoded("orderBy".into(), "date".into()),
+                Matcher::UrlEncoded("orderDirection".into(), "asc".into()),
+            ]))
+            .with_status(200)
+            .with_body(r#"{"items":[]}"#)
+            .create();
+        let _create = server
+            .mock("POST", "/api/households/mealplans")
+            .match_body(Matcher::JsonString(
+                r#"{"date":"2026-05-12","entryType":"dinner","title":"Soup","text":""}"#.into(),
+            ))
+            .with_status(200)
+            .with_body(r#"{"id":1,"date":"2026-05-12","entryType":"dinner","title":"Soup"}"#)
+            .create();
+
+        let output = run_from_with_exit_at(
+            [
+                "mealie", "--ndjson", "plan", "set", "--date", "-1d", "--type", "dinner",
+                "--title", "Soup",
+            ],
+            env(&server.url()),
+            today,
+        )
+        .expect("relative plan set")
+        .output;
+        let record: serde_json::Value = serde_json::from_str(&output).expect("plan record");
+
+        assert_eq!(record["date"], "2026-05-12");
     }
 }
