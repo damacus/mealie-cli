@@ -73,6 +73,54 @@ fn status_reports_an_invalid_url_before_attempting_connectivity() {
     assert_eq!(value["url_valid"], false);
     assert!(value["server_reachable"].is_null());
     assert!(value["authenticated"].is_null());
+    assert_eq!(
+        value["hint"],
+        "Set MEALIE_URL to a valid URL, then run `mealie status` again."
+    );
+    assert!(!String::from_utf8_lossy(&output.stdout).contains("do-not-print-me"));
+}
+
+#[test]
+fn status_explains_how_to_opt_in_to_http_for_a_trusted_local_server() {
+    let output = Command::new(env!("CARGO_BIN_EXE_mealie"))
+        .args(["status", "--ndjson"])
+        .env("MEALIE_URL", "http://mealie.example")
+        .env("MEALIE_TOKEN", "do-not-print-me")
+        .env_remove("USE_INSECURE_HTTP")
+        .output()
+        .expect("run mealie");
+
+    assert_eq!(output.status.code(), Some(2));
+    assert!(output.stderr.is_empty());
+    let value: serde_json::Value = serde_json::from_slice(&output.stdout).expect("status JSON");
+    assert_eq!(value["error"], "invalid_args");
+    assert_eq!(
+        value["hint"],
+        "Use an HTTPS MEALIE_URL, or set USE_INSECURE_HTTP=yes only for a trusted local server, then run `mealie status` again."
+    );
+    assert!(!String::from_utf8_lossy(&output.stdout).contains("do-not-print-me"));
+}
+
+#[test]
+fn status_explains_how_to_recover_from_an_unexpected_api_response() {
+    let mut server = mockito::Server::new();
+    let _mock = server
+        .mock("GET", "/api/users/self")
+        .with_status(500)
+        .create();
+
+    let output = mealie_with_env(&["status", "--ndjson"], &server.url(), "do-not-print-me");
+
+    assert_eq!(output.status.code(), Some(1));
+    assert!(output.stderr.is_empty());
+    let value: serde_json::Value = serde_json::from_slice(&output.stdout).expect("status JSON");
+    assert_eq!(value["error"], "api_error");
+    assert_eq!(value["server_reachable"], true);
+    assert_eq!(value["authenticated"], false);
+    assert_eq!(
+        value["hint"],
+        "Mealie returned an unexpected response while checking authentication. Check the Mealie server logs and reverse proxy, then run `mealie status` again."
+    );
     assert!(!String::from_utf8_lossy(&output.stdout).contains("do-not-print-me"));
 }
 

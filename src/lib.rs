@@ -12,7 +12,7 @@ use std::{env, ffi::OsString};
 use clap::{CommandFactory, Parser, error::ErrorKind};
 use cli::{Cli, Command, PlanCommand, RecipesCommand};
 use client::{MealieClient, PlanCreateRequest};
-use config::{Config, validate_base_url};
+use config::{Config, HTTPS_REQUIRED_MESSAGE, validate_base_url};
 use meal_type::MealType;
 use output::{CommandOutput, OutputMode, Presentation, record, write_output};
 
@@ -118,10 +118,10 @@ fn status(env_vars: &[(String, String)]) -> (CommandOutput, u8) {
         .as_deref()
         .map(|url| validate_base_url(url, allow_insecure_http));
 
-    let (url_valid, server_reachable, authenticated, error) = match (&validated_url, &token) {
-        (None, _) => (None, None, None, Some(ErrorCode::MissingConfig)),
-        (Some(Err(error)), _) => (Some(false), None, None, Some(error.code())),
-        (Some(Ok(_)), None) => (Some(true), None, None, Some(ErrorCode::MissingConfig)),
+    let (url_valid, server_reachable, authenticated, failure) = match (&validated_url, &token) {
+        (None, _) => (None, None, None, Some(StatusFailure::MissingConfig)),
+        (Some(Err(error)), _) => (Some(false), None, None, Some(status_url_failure(error))),
+        (Some(Ok(_)), None) => (Some(true), None, None, Some(StatusFailure::MissingConfig)),
         (Some(Ok(url)), Some(token)) => {
             let config = Config {
                 base_url: url.clone(),
@@ -130,19 +130,30 @@ fn status(env_vars: &[(String, String)]) -> (CommandOutput, u8) {
             match MealieClient::new(config).and_then(|client| client.check_authentication()) {
                 Ok(()) => (Some(true), Some(true), Some(true), None),
                 Err(error) if error.code() == ErrorCode::NetworkError => {
-                    (Some(true), Some(false), None, Some(error.code()))
+                    (Some(true), Some(false), None, Some(StatusFailure::Network))
                 }
-                Err(error) => (Some(true), Some(true), Some(false), Some(error.code())),
+                Err(error) if error.code() == ErrorCode::Authentication => (
+                    Some(true),
+                    Some(true),
+                    Some(false),
+                    Some(StatusFailure::Authentication),
+                ),
+                Err(_) => (
+                    Some(true),
+                    Some(true),
+                    Some(false),
+                    Some(StatusFailure::ApiResponse),
+                ),
             }
         }
     };
+    let error = failure.map(StatusFailure::code);
     let exit_code = error.map_or(0, |code| {
         AppError::new(code, "status check failed").exit_code()
     });
     let url_configured = configured_url.is_some();
     let token_configured = token.is_some();
-    let hint = error.map(status_hint);
-    let status = serde_json::json!({
+    let mut status = serde_json::json!({
         "ok": error.is_none(),
         "type": "status",
         "url": configured_url,
@@ -152,8 +163,10 @@ fn status(env_vars: &[(String, String)]) -> (CommandOutput, u8) {
         "server_reachable": server_reachable,
         "authenticated": authenticated,
         "error": error.map(ErrorCode::as_str),
-        "hint": hint,
     });
+    if let Some(failure) = failure {
+        status["hint"] = serde_json::json!(status_hint(failure));
+    }
 
     (
         CommandOutput {
@@ -164,22 +177,55 @@ fn status(env_vars: &[(String, String)]) -> (CommandOutput, u8) {
     )
 }
 
-fn status_hint(error: ErrorCode) -> &'static str {
-    match error {
-        ErrorCode::MissingConfig => {
+#[derive(Clone, Copy)]
+enum StatusFailure {
+    MissingConfig,
+    InvalidUrl,
+    InsecureHttp,
+    Authentication,
+    Network,
+    ApiResponse,
+}
+
+impl StatusFailure {
+    fn code(self) -> ErrorCode {
+        match self {
+            Self::MissingConfig => ErrorCode::MissingConfig,
+            Self::InvalidUrl | Self::InsecureHttp => ErrorCode::InvalidArgs,
+            Self::Authentication => ErrorCode::Authentication,
+            Self::Network => ErrorCode::NetworkError,
+            Self::ApiResponse => ErrorCode::ApiError,
+        }
+    }
+}
+
+fn status_url_failure(error: &AppError) -> StatusFailure {
+    if error.to_string() == HTTPS_REQUIRED_MESSAGE {
+        StatusFailure::InsecureHttp
+    } else {
+        StatusFailure::InvalidUrl
+    }
+}
+
+fn status_hint(failure: StatusFailure) -> &'static str {
+    match failure {
+        StatusFailure::MissingConfig => {
             "Set MEALIE_URL and MEALIE_TOKEN, then run `mealie status` again."
         }
-        ErrorCode::InvalidArgs => {
-            "Set MEALIE_URL to a valid HTTPS URL, then run `mealie status` again."
+        StatusFailure::InvalidUrl => {
+            "Set MEALIE_URL to a valid URL, then run `mealie status` again."
         }
-        ErrorCode::Authentication => {
+        StatusFailure::InsecureHttp => {
+            "Use an HTTPS MEALIE_URL, or set USE_INSECURE_HTTP=yes only for a trusted local server, then run `mealie status` again."
+        }
+        StatusFailure::Authentication => {
             "Check MEALIE_TOKEN and confirm it has access to this Mealie instance, then run `mealie status` again."
         }
-        ErrorCode::NetworkError => {
+        StatusFailure::Network => {
             "Check MEALIE_URL and confirm the Mealie server is reachable, then run `mealie status` again."
         }
-        ErrorCode::NotFound | ErrorCode::Ambiguous | ErrorCode::ApiError => {
-            "Fix the reported problem, then run `mealie status` again."
+        StatusFailure::ApiResponse => {
+            "Mealie returned an unexpected response while checking authentication. Check the Mealie server logs and reverse proxy, then run `mealie status` again."
         }
     }
 }

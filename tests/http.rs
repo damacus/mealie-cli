@@ -31,6 +31,24 @@ fn status_checks_configuration_connectivity_and_authentication() {
 }
 
 #[test]
+fn successful_structured_status_omits_the_optional_hint_field() {
+    let mut server = Server::new();
+    let _mock = server
+        .mock("GET", "/api/users/self")
+        .match_header("authorization", "Bearer secret-token")
+        .with_status(200)
+        .with_body(r#"{"id":"user-id"}"#)
+        .create();
+
+    let output =
+        run_from(["mealie", "status", "--ndjson"], env(&server.url())).expect("status output");
+    let status: serde_json::Value = serde_json::from_str(&output).expect("status JSON");
+
+    assert_eq!(status["ok"], true);
+    assert!(status.get("hint").is_none());
+}
+
+#[test]
 fn status_json_has_a_stable_schema_without_the_token() {
     let mut server = Server::new();
     let _mock = server
