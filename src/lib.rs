@@ -222,13 +222,55 @@ fn plan_set(
     let recipe = recipe_slug
         .map(|slug| client.get_recipe(slug))
         .transpose()?;
-    let existing = client.list_plan(date, date)?;
-    let mut output = Vec::new();
+    let existing = client
+        .list_plan(date, date)?
+        .into_iter()
+        .filter(|entry| {
+            entry.date.as_deref() == Some(date) && entry.meal.as_deref() == Some(meal_type.as_str())
+        })
+        .collect::<Vec<_>>();
 
-    for entry in existing.into_iter().filter(|entry| {
-        entry.date.as_deref() == Some(date) && entry.meal.as_deref() == Some(meal_type.as_str())
-    }) {
-        client.delete_plan(entry.id)?;
+    if existing.len() > 1 {
+        return Err(AppError::new(
+            ErrorCode::ApiError,
+            "multiple existing plan entries match this date and meal type; remove duplicates before replacing",
+        ));
+    }
+
+    let create_request = if let Some(recipe) = recipe.as_ref() {
+        PlanCreateRequest::recipe(date, meal_type.as_str(), &recipe.id)
+    } else {
+        PlanCreateRequest::title(date, meal_type.as_str(), title.unwrap_or_default())
+    };
+
+    let created = client.create_plan(&create_request)?;
+    let mut output = vec![record(
+        "plan_created",
+        [
+            ("id", serde_json::json!(created.id)),
+            ("date", serde_json::json!(created.date)),
+            ("meal", serde_json::json!(created.meal)),
+            ("title", serde_json::json!(created.title)),
+            ("recipe", serde_json::json!(created.recipe)),
+            ("recipeId", serde_json::json!(created.recipe_id)),
+        ],
+    )];
+
+    if let Some(entry) = existing.into_iter().next() {
+        if let Err(delete_error) = client.delete_plan(entry.id) {
+            let rollback = client.delete_plan(created.id);
+            let message = if rollback.is_ok() {
+                "replacement could not remove the original entry; the new entry was rolled back"
+            } else {
+                "replacement could not remove the original entry and the new entry could not be rolled back"
+            };
+
+            return Err(AppError::new(
+                delete_error.code(),
+                format!("{message}: {delete_error}"),
+            ));
+        }
+
         output.push(record(
             "plan_deleted",
             [
@@ -240,25 +282,6 @@ fn plan_set(
             ],
         ));
     }
-
-    let create_request = if let Some(recipe) = recipe.as_ref() {
-        PlanCreateRequest::recipe(date, meal_type.as_str(), &recipe.id)
-    } else {
-        PlanCreateRequest::title(date, meal_type.as_str(), title.unwrap_or_default())
-    };
-
-    let created = client.create_plan(&create_request)?;
-    output.push(record(
-        "plan_created",
-        [
-            ("id", serde_json::json!(created.id)),
-            ("date", serde_json::json!(created.date)),
-            ("meal", serde_json::json!(created.meal)),
-            ("title", serde_json::json!(created.title)),
-            ("recipe", serde_json::json!(created.recipe)),
-            ("recipeId", serde_json::json!(created.recipe_id)),
-        ],
-    ));
 
     Ok(output)
 }
