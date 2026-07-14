@@ -318,8 +318,11 @@ fn recipes_search(
         .collect())
 }
 
-fn recipes_get(client: &MealieClient, slug: &str) -> Result<Vec<serde_json::Value>, AppError> {
-    let recipe = client.get_recipe(slug)?;
+fn recipes_get(
+    client: &MealieClient,
+    recipe_query: &str,
+) -> Result<Vec<serde_json::Value>, AppError> {
+    let recipe = client.resolve_recipe(recipe_query)?;
 
     Ok(vec![record(
         "recipe",
@@ -388,11 +391,11 @@ fn plan_set(
     date: &str,
     meal_type: MealType,
     title: Option<&str>,
-    recipe_slug: Option<&str>,
+    recipe_query: Option<&str>,
 ) -> Result<Vec<serde_json::Value>, AppError> {
     validate_date("--date", date)?;
 
-    match (title, recipe_slug) {
+    match (title, recipe_query) {
         (Some(_), Some(_)) | (None, None) => {
             return Err(AppError::new(
                 ErrorCode::InvalidArgs,
@@ -402,8 +405,8 @@ fn plan_set(
         _ => {}
     }
 
-    let recipe = recipe_slug
-        .map(|slug| client.get_recipe(slug))
+    let recipe = recipe_query
+        .map(|query| client.resolve_recipe(query))
         .transpose()?;
     let existing = client
         .list_plan(date, date)?

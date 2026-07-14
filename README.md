@@ -109,7 +109,7 @@ Search recipes:
 mealie recipes search "pesto chicken" --limit 5
 ```
 
-Get a recipe and its complete ingredient list by exact slug:
+Get a recipe and its complete ingredient list by slug or exact name:
 
 ```text
 mealie recipes get butter-chicken
@@ -133,7 +133,7 @@ Create or replace a plain-text meal plan entry:
 mealie plan set --date 2026-05-13 --type dinner --title "Bolognaise"
 ```
 
-Create or replace a meal plan entry from a recipe slug:
+Create or replace a meal plan entry from a recipe slug or exact name:
 
 ```text
 mealie plan set --date 2026-05-16 --type dinner --recipe pesto-chicken-stew-with-cheesy-dumplings
@@ -156,7 +156,7 @@ breakfast lunch dinner side snack drink dessert
 `plan set` is intentionally conservative:
 
 - It requires exactly one of `--title` or `--recipe`.
-- `--recipe` must be an exact recipe slug.
+- Recipe references first match an exact slug. If the slug does not exist, they may match one exact case-insensitive recipe name. Multiple exact name matches return an `ambiguous` error with candidate names and slugs; fuzzy search results are never chosen.
 - Existing entries are replaced only for the same `date + type`.
 - The CLI deletes and recreates entries instead of updating in place, avoiding accidental preservation or mutation of unknown API fields.
 

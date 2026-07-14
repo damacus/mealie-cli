@@ -49,10 +49,10 @@ pub enum RecipesCommand {
         #[arg(short, long, default_value_t = 10, value_parser = clap::value_parser!(u32).range(1..=100), help = "Maximum number of recipes to return (1-100)")]
         limit: u32,
     },
-    /// Retrieve one recipe and its ingredients by exact slug
+    /// Retrieve one recipe and its ingredients by slug or exact name
     #[command(after_help = "Example:\n  mealie recipes get butter-chicken")]
     Get {
-        /// Exact recipe slug, for example "butter-chicken"
+        /// Recipe slug, or an exact case-insensitive recipe name
         slug: String,
     },
 }
@@ -106,7 +106,7 @@ pub struct PlanSetTargetArgs {
     /// Plain-text meal title
     #[arg(long)]
     pub title: Option<String>,
-    /// Exact recipe slug to add to the plan
+    /// Recipe slug, or an exact case-insensitive recipe name to add to the plan
     #[arg(long)]
     pub recipe: Option<String>,
 }
