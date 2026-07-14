@@ -26,6 +26,15 @@ MEALIE_URL=https://mealie.example.com
 MEALIE_TOKEN=<token>
 ```
 
+Check configuration, connectivity, and authentication without exposing the token:
+
+```text
+mealie status
+```
+
+The command exits with the existing stable error code for the first failed check. Use
+`--json` or `--ndjson` to receive the same status as a stable machine-readable record.
+
 `MEALIE_URL` may include a trailing slash. `MEALIE_TOKEN` is sent as a bearer token and is never printed by the CLI.
 
 HTTPS is required by default. For a deliberately insecure local or isolated
@@ -87,6 +96,12 @@ network_error
 ```
 
 ## Commands
+
+Check whether the CLI is ready to use:
+
+```text
+mealie status
+```
 
 Search recipes:
 

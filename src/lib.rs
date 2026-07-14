@@ -12,7 +12,7 @@ use std::{env, ffi::OsString};
 use clap::{CommandFactory, Parser, error::ErrorKind};
 use cli::{Cli, Command, PlanCommand, RecipesCommand};
 use client::{MealieClient, PlanCreateRequest};
-use config::Config;
+use config::{Config, validate_base_url};
 use meal_type::MealType;
 use output::{CommandOutput, OutputMode, Presentation, record, write_output};
 
@@ -20,7 +20,27 @@ pub fn run_from_env() -> Result<String, AppError> {
     run_from(env::args_os(), env::vars())
 }
 
+pub struct RunResult {
+    pub output: String,
+    pub exit_code: u8,
+}
+
+pub fn run_from_env_with_exit() -> Result<RunResult, AppError> {
+    run_from_with_exit(env::args_os(), env::vars())
+}
+
 pub fn run_from<I, T, E, K, V>(args: I, env_vars: E) -> Result<String, AppError>
+where
+    I: IntoIterator<Item = T>,
+    T: Into<OsString> + Clone,
+    E: IntoIterator<Item = (K, V)>,
+    K: Into<String>,
+    V: Into<String>,
+{
+    run_from_with_exit(args, env_vars).map(|result| result.output)
+}
+
+fn run_from_with_exit<I, T, E, K, V>(args: I, env_vars: E) -> Result<RunResult, AppError>
 where
     I: IntoIterator<Item = T>,
     T: Into<OsString> + Clone,
@@ -36,31 +56,114 @@ where
                 ErrorKind::DisplayHelp | ErrorKind::DisplayVersion
             ) =>
         {
-            return Ok(error.to_string());
+            return Ok(RunResult {
+                output: error.to_string(),
+                exit_code: 0,
+            });
         }
         Err(error) => return Err(AppError::invalid_args(error)),
     };
     let mode = OutputMode::from_flags(cli.json, cli.ndjson, cli.quiet)?;
+    let env_vars: Vec<(String, String)> = env_vars
+        .into_iter()
+        .map(|(key, value)| (key.into(), value.into()))
+        .collect();
+
     let command = match cli.command {
         Command::Completion { shell } => {
             let mut command = Cli::command();
             let mut output = Vec::new();
             clap_complete::generate(shell, &mut command, "mealie", &mut output);
-            return String::from_utf8(output)
-                .map_err(|error| AppError::new(ErrorCode::ApiError, error.to_string()));
+            return Ok(RunResult {
+                output: String::from_utf8(output)
+                    .map_err(|error| AppError::new(ErrorCode::ApiError, error.to_string()))?,
+                exit_code: 0,
+            });
+        }
+        Command::Status => {
+            let (output, exit_code) = status(&env_vars);
+            return Ok(RunResult {
+                output: write_output(mode, output)?,
+                exit_code,
+            });
         }
         command => command,
     };
+
     let config = Config::from_env(env_vars)?;
     let client = MealieClient::new(config)?;
     let output = execute(&client, command)?;
 
-    write_output(mode, output)
+    Ok(RunResult {
+        output: write_output(mode, output)?,
+        exit_code: 0,
+    })
+}
+
+fn status(env_vars: &[(String, String)]) -> (CommandOutput, u8) {
+    let value = |name: &str| {
+        env_vars
+            .iter()
+            .find(|(key, _)| key == name)
+            .map(|(_, value)| value.trim().to_string())
+            .filter(|value| !value.is_empty())
+    };
+    let configured_url = value("MEALIE_URL");
+    let token = value("MEALIE_TOKEN");
+    let allow_insecure_http =
+        value("USE_INSECURE_HTTP").is_some_and(|value| value.eq_ignore_ascii_case("yes"));
+    let validated_url = configured_url
+        .as_deref()
+        .map(|url| validate_base_url(url, allow_insecure_http));
+
+    let (url_valid, server_reachable, authenticated, error) = match (&validated_url, &token) {
+        (None, _) => (None, None, None, Some(ErrorCode::MissingConfig)),
+        (Some(Err(error)), _) => (Some(false), None, None, Some(error.code())),
+        (Some(Ok(_)), None) => (Some(true), None, None, Some(ErrorCode::MissingConfig)),
+        (Some(Ok(url)), Some(token)) => {
+            let config = Config {
+                base_url: url.clone(),
+                token: token.clone(),
+            };
+            match MealieClient::new(config).and_then(|client| client.check_authentication()) {
+                Ok(()) => (Some(true), Some(true), Some(true), None),
+                Err(error) if error.code() == ErrorCode::NetworkError => {
+                    (Some(true), Some(false), None, Some(error.code()))
+                }
+                Err(error) => (Some(true), Some(true), Some(false), Some(error.code())),
+            }
+        }
+    };
+    let exit_code = error.map_or(0, |code| {
+        AppError::new(code, "status check failed").exit_code()
+    });
+    let url_configured = configured_url.is_some();
+    let token_configured = token.is_some();
+    let status = serde_json::json!({
+        "ok": error.is_none(),
+        "type": "status",
+        "url": configured_url,
+        "url_configured": url_configured,
+        "url_valid": url_valid,
+        "token_configured": token_configured,
+        "server_reachable": server_reachable,
+        "authenticated": authenticated,
+        "error": error.map(ErrorCode::as_str),
+    });
+
+    (
+        CommandOutput {
+            presentation: Presentation::Status,
+            values: vec![status],
+        },
+        exit_code,
+    )
 }
 
 fn execute(client: &MealieClient, command: Command) -> Result<CommandOutput, AppError> {
     match command {
         Command::Completion { .. } => unreachable!("completion output is generated before config"),
+        Command::Status => unreachable!("status is handled before client creation"),
         Command::Recipes(recipes) => match recipes {
             RecipesCommand::Search { query, limit } => Ok(CommandOutput {
                 presentation: Presentation::RecipeSearch {

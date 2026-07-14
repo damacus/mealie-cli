@@ -1,10 +1,10 @@
 use std::{env, process::ExitCode};
 
 fn main() -> ExitCode {
-    match mealie_cli::run_from_env() {
-        Ok(output) => {
-            print!("{output}");
-            ExitCode::SUCCESS
+    match mealie_cli::run_from_env_with_exit() {
+        Ok(result) => {
+            print!("{}", result.output);
+            ExitCode::from(result.exit_code)
         }
         Err(error) => {
             let machine_readable =
