@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.1.5](https://github.com/damacus/mealie-cli/compare/v0.1.4...v0.1.5) (2026-08-22)
+
+
+### Features
+
+* **cli:** improve task-oriented help ([#32](https://github.com/damacus/mealie-cli/issues/32)) ([6deee97](https://github.com/damacus/mealie-cli/commit/6deee9725f4b8aa9d39b9e57ff70e43fab42786a))
+* **plan:** add weekly meal-plan view ([#37](https://github.com/damacus/mealie-cli/issues/37)) ([457b9fc](https://github.com/damacus/mealie-cli/commit/457b9fc7562cdd6ef31c248a6b2f4e9ab6e69a07))
+* **plan:** support relative dates ([#35](https://github.com/damacus/mealie-cli/issues/35)) ([5657be7](https://github.com/damacus/mealie-cli/commit/5657be78d618176cac3bf4a267032ff6ca8cdb16))
+* **recipes:** resolve exact recipe names ([#34](https://github.com/damacus/mealie-cli/issues/34)) ([829e557](https://github.com/damacus/mealie-cli/commit/829e557987b655ead2b1fabe710922c50306bbc8))
+
 ## [0.1.4](https://github.com/damacus/mealie-cli/compare/v0.1.3...v0.1.4) (2026-07-14)
 
 
