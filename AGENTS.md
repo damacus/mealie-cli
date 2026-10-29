@@ -33,8 +33,11 @@ to stderr as JSON with stable codes: `missing_config`, `invalid_args`,
 
 `plan set` is conservative by design: exactly one of `--title`/`--recipe`;
 recipe references resolve by exact slug, then exactly one case-insensitive
-name (multiple matches → `ambiguous` with candidates); existing entries are
-replaced only for the same date+type via delete-and-recreate.
+name (multiple matches → `ambiguous` with candidates); an existing entry is
+replaced only for the same date+type, by creating the new entry first and then
+deleting the original. If that delete fails, the new entry is rolled back
+(deleted) and the original delete error is returned. More than one existing
+match for the date+type aborts with `api_error` before anything is changed.
 
 ## Developing
 
