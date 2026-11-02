@@ -1475,17 +1475,16 @@ fn execute(
                 validate_path_segment(&slug)?;
                 validate_path_segment(&id)?;
                 let recipe = client.get_recipe(&slug)?;
-                let mut assignments = recipe
-                    .raw
-                    .get(field)
-                    .and_then(serde_json::Value::as_array)
-                    .cloned()
-                    .ok_or_else(|| {
-                        AppError::new(
+                let mut assignments = match recipe.raw.get(field) {
+                    Some(serde_json::Value::Null) => Vec::new(),
+                    Some(serde_json::Value::Array(items)) => items.clone(),
+                    _ => {
+                        return Err(AppError::new(
                             ErrorCode::ApiError,
-                            format!("recipe response missing {field}"),
-                        )
-                    })?;
+                            format!("recipe response missing or invalid {field}"),
+                        ));
+                    }
+                };
                 if assignments
                     .iter()
                     .any(|item| item.get("id").and_then(serde_json::Value::as_str).is_none())
@@ -1600,16 +1599,14 @@ fn execute(
                 let mut values = Vec::new();
                 for recipe in client.list_recipes()? {
                     let missing = |field: &str| -> Result<bool, AppError> {
-                        recipe
-                            .get(field)
-                            .and_then(serde_json::Value::as_array)
-                            .map(Vec::is_empty)
-                            .ok_or_else(|| {
-                                AppError::new(
-                                    ErrorCode::ApiError,
-                                    format!("recipe list response missing {field}"),
-                                )
-                            })
+                        match recipe.get(field) {
+                            Some(serde_json::Value::Null) => Ok(true),
+                            Some(serde_json::Value::Array(items)) => Ok(items.is_empty()),
+                            _ => Err(AppError::new(
+                                ErrorCode::ApiError,
+                                format!("recipe list response missing or invalid {field}"),
+                            )),
+                        }
                     };
                     if (untagged && !missing("tags")?)
                         || (uncategorised && !missing("recipeCategory")?)
