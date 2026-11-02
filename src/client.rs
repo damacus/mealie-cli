@@ -118,8 +118,13 @@ impl MealieClient {
             .ok_or_else(|| {
                 AppError::new(ErrorCode::ApiError, "export response missing file token")
             })?;
-        let response = self
-            .http
+        let download_client = Client::builder()
+            .timeout(REQUEST_TIMEOUT)
+            .redirect(reqwest::redirect::Policy::none())
+            .referer(false)
+            .build()
+            .map_err(|error| AppError::from(error.without_url()))?;
+        let response = download_client
             .get(self.config.endpoint("/api/utils/download"))
             .query(&[("token", token)])
             .send()
