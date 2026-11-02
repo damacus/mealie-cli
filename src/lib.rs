@@ -257,7 +257,154 @@ fn execute(
     match command {
         Command::Completion { .. } => unreachable!("completion output is generated before config"),
         Command::Status => unreachable!("status is handled before client creation"),
+        Command::Tags(cli::OrganizerCommand::Create { ref name, dry_run })
+        | Command::Categories(cli::OrganizerCommand::Create { ref name, dry_run }) => {
+            if name.trim().is_empty() {
+                return Err(AppError::new(
+                    ErrorCode::InvalidArgs,
+                    "organiser name cannot be empty",
+                ));
+            }
+            let path = if matches!(command, Command::Tags(_)) {
+                "/api/organizers/tags"
+            } else {
+                "/api/organizers/categories"
+            };
+            let mut value = if dry_run {
+                serde_json::json!({"name": name, "path": path})
+            } else {
+                client.create_organizer(path, name)?
+            };
+            let object = value
+                .as_object_mut()
+                .ok_or_else(|| AppError::new(ErrorCode::ApiError, "invalid organiser response"))?;
+            object.insert("ok".into(), true.into());
+            object.insert(
+                "type".into(),
+                if dry_run {
+                    "organizer_create_plan"
+                } else {
+                    "organizer_created"
+                }
+                .into(),
+            );
+            Ok(CommandOutput {
+                presentation: Presentation::OrganizerCreate {
+                    kind: if path.ends_with("tags") {
+                        "tag"
+                    } else {
+                        "category"
+                    },
+                    dry_run,
+                },
+                values: vec![value],
+            })
+        }
+        Command::Tags(cli::OrganizerCommand::List)
+        | Command::Categories(cli::OrganizerCommand::List) => {
+            let path = if matches!(command, Command::Tags(_)) {
+                "/api/organizers/tags"
+            } else {
+                "/api/organizers/categories"
+            };
+            let values = client
+                .list_collection(path)?
+                .into_iter()
+                .map(|mut value| {
+                    if let Some(object) = value.as_object_mut() {
+                        object.insert("ok".into(), true.into());
+                        object.insert("type".into(), "organizer".into());
+                    }
+                    value
+                })
+                .collect();
+            Ok(CommandOutput {
+                presentation: Presentation::OrganizerList {
+                    plural: if path.ends_with("tags") {
+                        "tags"
+                    } else {
+                        "categories"
+                    },
+                },
+                values,
+            })
+        }
         Command::Recipes(recipes) => match recipes {
+            RecipesCommand::Update {
+                slug,
+                description,
+                dry_run,
+            } => {
+                if slug.is_empty()
+                    || matches!(slug.as_str(), "." | "..")
+                    || slug
+                        .chars()
+                        .any(|c| matches!(c, '/' | '\\' | '?' | '#' | '%'))
+                {
+                    return Err(AppError::new(
+                        ErrorCode::InvalidArgs,
+                        "recipe slug must be a single path segment",
+                    ));
+                }
+                let patch = serde_json::json!({"description": description});
+                let value = if dry_run {
+                    serde_json::json!({"slug":slug,"changes":patch})
+                } else {
+                    client.update_recipe(&slug, &patch)?
+                };
+                let mut value = value;
+                let object = value.as_object_mut().ok_or_else(|| {
+                    AppError::new(ErrorCode::ApiError, "invalid recipe update response")
+                })?;
+                object.insert("ok".into(), true.into());
+                object.insert(
+                    "type".into(),
+                    if dry_run {
+                        "recipe_update_plan"
+                    } else {
+                        "recipe_updated"
+                    }
+                    .into(),
+                );
+                Ok(CommandOutput {
+                    presentation: Presentation::RecipeUpdate,
+                    values: vec![value],
+                })
+            }
+            RecipesCommand::List {
+                untagged,
+                uncategorised,
+            } => {
+                let mut values = Vec::new();
+                for recipe in client.list_recipes()? {
+                    let missing = |field: &str| -> Result<bool, AppError> {
+                        match recipe.get(field) {
+                            Some(serde_json::Value::Null) => Ok(true),
+                            Some(serde_json::Value::Array(items)) => Ok(items.is_empty()),
+                            _ => Err(AppError::new(
+                                ErrorCode::ApiError,
+                                format!("recipe list response missing or invalid {field}"),
+                            )),
+                        }
+                    };
+                    if (untagged && !missing("tags")?)
+                        || (uncategorised && !missing("recipeCategory")?)
+                    {
+                        continue;
+                    }
+                    let mut recipe = recipe;
+                    let object = recipe.as_object_mut().ok_or_else(|| {
+                        AppError::new(ErrorCode::ApiError, "invalid recipe summary")
+                    })?;
+                    object.insert("ok".into(), true.into());
+                    object.insert("type".into(), "recipe".into());
+                    values.push(recipe);
+                }
+                Ok(CommandOutput {
+                    presentation: Presentation::RecipeList,
+                    values,
+                })
+            }
             RecipesCommand::Search { query, limit } => Ok(CommandOutput {
                 presentation: Presentation::RecipeSearch {
                     query: query.clone(),
@@ -376,9 +523,9 @@ fn recipes_get(
     client: &MealieClient,
     recipe_query: &str,
 ) -> Result<Vec<serde_json::Value>, AppError> {
-    let recipe = client.resolve_recipe(recipe_query)?;
+    let recipe = client.resolve_recipe_details(recipe_query)?;
 
-    Ok(vec![record(
+    let mut result = record(
         "recipe",
         [
             ("id", serde_json::json!(recipe.id)),
@@ -386,7 +533,13 @@ fn recipes_get(
             ("name", serde_json::json!(recipe.name)),
             ("ingredients", serde_json::json!(recipe.ingredients)),
         ],
-    )])
+    );
+    if let (Some(object), Some(raw)) = (result.as_object_mut(), recipe.raw.as_object()) {
+        for (field, value) in raw {
+            object.entry(field.clone()).or_insert_with(|| value.clone());
+        }
+    }
+    Ok(vec![result])
 }
 
 fn plan_list(

@@ -115,6 +115,17 @@ Get a recipe and its complete ingredient list by slug or exact name:
 mealie recipes get butter-chicken
 ```
 
+List catalogue recipes and existing organisers, or preview a description change:
+
+```text
+mealie recipes list --untagged --json
+mealie categories list
+mealie tags create --name "Freezer friendly" --dry-run
+mealie recipes update butter-chicken --description "Chicken in a spiced tomato sauce" --dry-run
+```
+
+Recipe details include the server's complete recipe data in structured output.
+
 List meal plans:
 
 ```text

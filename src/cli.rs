@@ -34,13 +34,47 @@ pub enum Command {
     /// Search for or retrieve recipes
     #[command(subcommand, visible_alias = "recipe")]
     Recipes(RecipesCommand),
+    /// List recipe tags
+    #[command(subcommand)]
+    Tags(OrganizerCommand),
+    /// List recipe categories
+    #[command(subcommand)]
+    Categories(OrganizerCommand),
     /// List, create, replace, or delete meal plan entries
     #[command(subcommand, visible_alias = "meal-plan")]
     Plan(PlanCommand),
 }
 
 #[derive(Debug, Subcommand)]
+pub enum OrganizerCommand {
+    /// List all organisers
+    List,
+    /// Create an organiser
+    Create {
+        #[arg(long)]
+        name: String,
+        #[arg(long)]
+        dry_run: bool,
+    },
+}
+
+#[derive(Debug, Subcommand)]
 pub enum RecipesCommand {
+    /// Update a recipe description
+    Update {
+        slug: String,
+        #[arg(long)]
+        description: String,
+        #[arg(long)]
+        dry_run: bool,
+    },
+    /// List all recipes, optionally filtering missing organisers
+    List {
+        #[arg(long)]
+        untagged: bool,
+        #[arg(long)]
+        uncategorised: bool,
+    },
     /// Search recipes by name or ingredient
     #[command(after_help = "Examples:\n  mealie recipes search \"pesto chicken\" --limit 5")]
     Search {

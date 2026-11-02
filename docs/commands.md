@@ -79,3 +79,17 @@ breakfast lunch dinner side snack drink dessert
 `plan set` requires exactly one of `--title` or `--recipe`.
 
 Recipe references first match an exact slug. If that slug does not exist, the CLI accepts one exact case-insensitive recipe name. Several exact name matches return an `ambiguous` error listing candidate names and slugs. The CLI never guesses from fuzzy search results.
+
+# Catalogue commands
+
+`mealie recipes list` lists the complete paginated catalogue. Add `--untagged`
+or `--uncategorised` to filter recipes with empty tags or categories. Both
+filters may be combined. `mealie tags list` and `mealie categories list` list
+existing organisers. Use `--json` or `--ndjson` for structured results.
+Use `mealie tags create --name <name>` or `mealie categories create --name
+<name>` to create one; add `--dry-run` to preview it.
+
+`mealie recipes update <slug> --description <text>` updates a description.
+Add `--dry-run` to show the proposed change without sending it to Mealie.
+Structured `recipes get` output includes catalogue metadata when supplied by
+the server.
