@@ -92,6 +92,32 @@ impl<'a> PlanCreateRequest<'a> {
 }
 
 impl MealieClient {
+    pub fn create_recipe(&self, name: &str) -> Result<String, AppError> {
+        let value = self
+            .http
+            .post(self.config.endpoint("/api/recipes"))
+            .bearer_auth(&self.config.token)
+            .json(&serde_json::json!({"name":name}))
+            .send()
+            .map_err(AppError::from)
+            .and_then(|response| checked_json(response, "create recipe"))?;
+        value
+            .as_str()
+            .map(str::to_owned)
+            .filter(|slug| !slug.is_empty())
+            .ok_or_else(|| {
+                AppError::new(ErrorCode::ApiError, "create recipe response missing slug")
+            })
+    }
+    pub fn delete_recipe(&self, slug: &str) -> Result<(), AppError> {
+        self.http
+            .delete(self.config.endpoint(&format!("/api/recipes/{slug}")))
+            .bearer_auth(&self.config.token)
+            .send()
+            .map_err(AppError::from)
+            .and_then(|response| checked_optional_json(response, "delete recipe"))?;
+        Ok(())
+    }
     pub fn set_image_url(&self, slug: &str, url: &str) -> Result<Value, AppError> {
         self.http
             .post(self.config.endpoint(&format!("/api/recipes/{slug}/image")))

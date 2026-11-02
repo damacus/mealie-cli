@@ -511,6 +511,108 @@ fn execute(
             })
         }
         Command::Recipes(recipes) => match recipes {
+            RecipesCommand::Patch {
+                slug,
+                file,
+                dry_run,
+            } => {
+                validate_path_segment(&slug)?;
+                let data = std::fs::read_to_string(&file).map_err(|error| {
+                    AppError::new(
+                        ErrorCode::InvalidArgs,
+                        format!("cannot read patch file: {error}"),
+                    )
+                })?;
+                let patch: serde_json::Value = serde_json::from_str(&data).map_err(|error| {
+                    AppError::new(
+                        ErrorCode::InvalidArgs,
+                        format!("invalid patch JSON: {error}"),
+                    )
+                })?;
+                if patch.as_object().is_none_or(serde_json::Map::is_empty) {
+                    return Err(AppError::new(
+                        ErrorCode::InvalidArgs,
+                        "patch must be a non-empty JSON object",
+                    ));
+                }
+                let mut value = if dry_run {
+                    serde_json::json!({"slug":slug,"changes":patch})
+                } else {
+                    client.update_recipe(&slug, &patch)?
+                };
+                let object = value.as_object_mut().ok_or_else(|| {
+                    AppError::new(ErrorCode::ApiError, "invalid recipe update response")
+                })?;
+                object.insert("ok".into(), true.into());
+                object.insert(
+                    "type".into(),
+                    if dry_run {
+                        "recipe_patch_plan"
+                    } else {
+                        "recipe_updated"
+                    }
+                    .into(),
+                );
+                Ok(CommandOutput {
+                    presentation: Presentation::RecipeOrganize { dry_run },
+                    values: vec![value],
+                })
+            }
+            RecipesCommand::Create { name, dry_run } => {
+                if name.trim().is_empty() {
+                    return Err(AppError::new(
+                        ErrorCode::InvalidArgs,
+                        "recipe name cannot be empty",
+                    ));
+                }
+                let slug = if dry_run {
+                    None
+                } else {
+                    Some(client.create_recipe(&name)?)
+                };
+                Ok(CommandOutput {
+                    presentation: Presentation::RecipeCreate { dry_run },
+                    values: vec![record(
+                        if dry_run {
+                            "recipe_create_plan"
+                        } else {
+                            "recipe_created"
+                        },
+                        [
+                            ("name", serde_json::json!(name)),
+                            ("slug", serde_json::json!(slug)),
+                        ],
+                    )],
+                })
+            }
+            RecipesCommand::Delete { slug, yes, dry_run } => {
+                validate_path_segment(&slug)?;
+                if !yes && !dry_run {
+                    return Err(AppError::new(
+                        ErrorCode::InvalidArgs,
+                        "delete removes the recipe; pass --yes or --dry-run",
+                    ));
+                }
+                let recipe = client.get_recipe(&slug)?;
+                if !dry_run {
+                    client.delete_recipe(&slug)?;
+                }
+                Ok(CommandOutput {
+                    presentation: Presentation::RecipeDelete { dry_run },
+                    values: vec![record(
+                        if dry_run {
+                            "recipe_delete_plan"
+                        } else {
+                            "recipe_deleted"
+                        },
+                        [
+                            ("id", serde_json::json!(recipe.id)),
+                            ("slug", serde_json::json!(recipe.slug)),
+                            ("name", serde_json::json!(recipe.name)),
+                        ],
+                    )],
+                })
+            }
             RecipesCommand::Image(image) => match image {
                 cli::RecipeImageCommand::SetUrl { slug, url, dry_run } => {
                     validate_path_segment(&slug)?;

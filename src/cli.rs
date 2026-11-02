@@ -97,6 +97,29 @@ pub enum OrganizerCommand {
 
 #[derive(Debug, Subcommand)]
 pub enum RecipesCommand {
+    /// Update recipe fields from a JSON object
+    Patch {
+        slug: String,
+        #[arg(long)]
+        file: std::path::PathBuf,
+        #[arg(long)]
+        dry_run: bool,
+    },
+    /// Create an empty recipe
+    Create {
+        #[arg(long)]
+        name: String,
+        #[arg(long)]
+        dry_run: bool,
+    },
+    /// Delete a recipe
+    Delete {
+        slug: String,
+        #[arg(long, conflicts_with = "dry_run")]
+        yes: bool,
+        #[arg(long)]
+        dry_run: bool,
+    },
     /// Manage a recipe image
     #[command(subcommand)]
     Image(RecipeImageCommand),

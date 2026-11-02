@@ -513,6 +513,76 @@ fn recipe_image_preview_is_read_only_and_rejects_credential_urls() {
 }
 
 #[test]
+fn creates_blank_recipe_and_returns_its_slug() {
+    let mut server = Server::new();
+    let mock = server
+        .mock("POST", "/api/recipes")
+        .match_body(Matcher::Json(serde_json::json!({"name":"Soup"})))
+        .with_status(201)
+        .with_body(r#""soup""#)
+        .create();
+    let output = run_from(
+        ["mealie", "recipes", "create", "--name", "Soup", "--json"],
+        env(&server.url()),
+    )
+    .unwrap();
+    let values: serde_json::Value = serde_json::from_str(&output).unwrap();
+    assert_eq!(values[0]["slug"], "soup");
+    mock.assert();
+}
+
+#[test]
+fn recipe_delete_requires_explicit_confirmation() {
+    let mut server = Server::new();
+    let error = run_from(["mealie", "recipes", "delete", "soup"], env(&server.url())).unwrap_err();
+    assert_eq!(error.code(), ErrorCode::InvalidArgs);
+    let recipe = server
+        .mock("GET", "/api/recipes/soup")
+        .with_body(r#"{"id":"r1","slug":"soup","name":"Soup"}"#)
+        .create();
+    let delete = server
+        .mock("DELETE", "/api/recipes/soup")
+        .with_status(204)
+        .create();
+    let output = run_from(
+        ["mealie", "recipes", "delete", "soup", "--yes", "--quiet"],
+        env(&server.url()),
+    )
+    .unwrap();
+    assert_eq!(output, "r1\n");
+    recipe.assert();
+    delete.assert();
+}
+
+#[test]
+fn applies_a_recipe_json_patch_from_file() {
+    let mut server = Server::new();
+    let path = std::env::temp_dir().join(format!("mealie-patch-{}.json", std::process::id()));
+    std::fs::write(
+        &path,
+        r#"{"prepTime":"10 minutes","recipeInstructions":[{"text":"Cook"}]}"#,
+    )
+    .unwrap();
+    let patch = server
+        .mock("PATCH", "/api/recipes/soup")
+        .match_body(Matcher::Json(
+            serde_json::json!({"prepTime":"10 minutes","recipeInstructions":[{"text":"Cook"}]}),
+        ))
+        .with_body(r#"{"id":"r1","slug":"soup","name":"Soup"}"#)
+        .create();
+    let filename = path.to_str().unwrap();
+    let result = run_from(
+        [
+            "mealie", "recipes", "patch", "soup", "--file", filename, "--json",
+        ],
+        env(&server.url()),
+    );
+    std::fs::remove_file(path).unwrap();
+    assert!(result.is_ok());
+    patch.assert();
+}
+
+#[test]
 fn merge_tags_sends_from_and_to_ids() {
     let mut server = Server::new();
     let mock = server

@@ -51,6 +51,12 @@ pub enum Presentation {
     RecipeImage {
         action: &'static str,
     },
+    RecipeCreate {
+        dry_run: bool,
+    },
+    RecipeDelete {
+        dry_run: bool,
+    },
     RecipeSearch {
         query: String,
     },
@@ -108,6 +114,23 @@ pub fn write_output(mode: OutputMode, output: CommandOutput) -> Result<String, A
 fn write_human(presentation: &Presentation, values: &[Value]) -> String {
     match presentation {
         Presentation::Status => write_status(&values[0]),
+        Presentation::RecipeCreate { dry_run } => {
+            if *dry_run {
+                format!("Would create recipe: {}\n", text(&values[0], "name"))
+            } else {
+                format!(
+                    "Created recipe: {} ({})\n",
+                    text(&values[0], "name"),
+                    text(&values[0], "slug")
+                )
+            }
+        }
+        Presentation::RecipeDelete { dry_run } => format!(
+            "{} recipe: {} ({})\n",
+            if *dry_run { "Would delete" } else { "Deleted" },
+            text(&values[0], "name"),
+            text(&values[0], "slug")
+        ),
         Presentation::RecipeImage { action } => format!(
             "{action}: {}\n",
             if *action == "Would set image from" {
@@ -422,10 +445,20 @@ fn write_quiet(values: &[Value]) -> String {
                         | "recipe_updated"
                         | "recipe_image_updated"
                         | "recipe_image_deleted"
+                        | "recipe_created"
+                        | "recipe_deleted"
                 )
             )
         })
-        .filter_map(|value| value.get("id"))
+        .filter_map(|value| {
+            value.get("id").or_else(|| {
+                if value.get("type").and_then(Value::as_str) == Some("recipe_created") {
+                    value.get("slug")
+                } else {
+                    None
+                }
+            })
+        })
         .filter_map(value_text)
         .collect();
 
