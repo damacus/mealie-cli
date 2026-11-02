@@ -511,6 +511,108 @@ fn execute(
             })
         }
         Command::Recipes(recipes) => match recipes {
+            RecipesCommand::BulkSettings {
+                recipe,
+                file,
+                dry_run,
+            } => {
+                for slug in &recipe {
+                    validate_path_segment(slug)?;
+                }
+                if recipe
+                    .iter()
+                    .collect::<std::collections::HashSet<_>>()
+                    .len()
+                    != recipe.len()
+                {
+                    return Err(AppError::new(
+                        ErrorCode::InvalidArgs,
+                        "duplicate recipes are not allowed",
+                    ));
+                }
+                let data = std::fs::read_to_string(&file).map_err(|error| {
+                    AppError::new(
+                        ErrorCode::InvalidArgs,
+                        format!("cannot read settings file: {error}"),
+                    )
+                })?;
+                let settings: serde_json::Value = serde_json::from_str(&data).map_err(|error| {
+                    AppError::new(
+                        ErrorCode::InvalidArgs,
+                        format!("invalid settings JSON: {error}"),
+                    )
+                })?;
+                const FIELDS: [&str; 5] = [
+                    "public",
+                    "showNutrition",
+                    "showAssets",
+                    "landscapeView",
+                    "disableComments",
+                ];
+                let object = settings.as_object().ok_or_else(|| {
+                    AppError::new(ErrorCode::InvalidArgs, "settings must be a JSON object")
+                })?;
+                if object.len() != FIELDS.len()
+                    || FIELDS.iter().any(|field| {
+                        object
+                            .get(*field)
+                            .and_then(serde_json::Value::as_bool)
+                            .is_none()
+                    })
+                {
+                    return Err(AppError::new(
+                        ErrorCode::InvalidArgs,
+                        "settings must contain exactly the five boolean fields public, showNutrition, showAssets, landscapeView and disableComments; locked is preserved by Mealie",
+                    ));
+                }
+                let payload = serde_json::json!({"recipes":recipe,"settings":settings});
+                if dry_run {
+                    return Ok(CommandOutput {
+                        presentation: Presentation::BulkPlan,
+                        values: vec![record(
+                            "recipe_bulk_plan",
+                            [
+                                ("action", serde_json::json!("settings")),
+                                ("changes", payload),
+                            ],
+                        )],
+                    });
+                }
+                client.bulk_action("settings", &payload).map_err(|error| {
+                    AppError::new(
+                        error.code(),
+                        format!("bulk settings failed; changes may be partial: {error}"),
+                    )
+                })?;
+                let mut results = Vec::new();
+                for slug in &recipe {
+                    let updated = client.get_recipe(slug).map_err(|error| AppError::new(error.code(), format!("bulk settings were sent but verification failed for {slug}; changes may be partial: {error}")))?;
+                    let actual = updated.raw.get("settings").and_then(serde_json::Value::as_object).ok_or_else(|| AppError::new(ErrorCode::ApiError, format!("bulk settings were sent but {slug} has no settings; changes may be partial")))?;
+                    if FIELDS
+                        .iter()
+                        .any(|field| actual.get(*field) != object.get(*field))
+                    {
+                        return Err(AppError::new(
+                            ErrorCode::ApiError,
+                            format!(
+                                "bulk settings were sent but {slug} does not match; changes may be partial"
+                            ),
+                        ));
+                    }
+                    results.push(record(
+                        "recipe_bulk_verified",
+                        [
+                            ("id", serde_json::json!(updated.id)),
+                            ("slug", serde_json::json!(updated.slug)),
+                            ("name", serde_json::json!(updated.name)),
+                        ],
+                    ));
+                }
+                Ok(CommandOutput {
+                    presentation: Presentation::RecipeList,
+                    values: results,
+                })
+            }
             RecipesCommand::BulkDelete {
                 recipe,
                 yes,

@@ -861,6 +861,97 @@ fn bulk_delete_reports_remaining_recipes() {
 }
 
 #[test]
+fn bulk_settings_require_complete_fields_and_verify_result() {
+    let mut server = Server::new();
+    let path = std::env::temp_dir().join(format!("mealie-settings-{}.json", std::process::id()));
+    let settings = serde_json::json!({"public":false,"showNutrition":true,"showAssets":false,"landscapeView":false,"disableComments":true});
+    std::fs::write(&path, settings.to_string()).unwrap();
+    let bulk = server
+        .mock("POST", "/api/recipes/bulk-actions/settings")
+        .match_body(Matcher::Json(
+            serde_json::json!({"recipes":["soup"],"settings":settings}),
+        ))
+        .with_body("null")
+        .create();
+    let check = server.mock("GET", "/api/recipes/soup").with_body(r#"{"id":"r1","slug":"soup","name":"Soup","settings":{"public":false,"showNutrition":true,"showAssets":false,"landscapeView":false,"disableComments":true,"locked":true}}"#).create();
+    let output = run_from(
+        [
+            "mealie",
+            "recipes",
+            "bulk-settings",
+            "--recipe",
+            "soup",
+            "--file",
+            path.to_str().unwrap(),
+            "--json",
+        ],
+        env(&server.url()),
+    );
+    std::fs::remove_file(path).unwrap();
+    assert!(output.is_ok());
+    bulk.assert();
+    check.assert();
+}
+
+#[test]
+fn bulk_settings_reject_incomplete_data_before_network() {
+    let server = Server::new();
+    let path = std::env::temp_dir().join(format!(
+        "mealie-settings-incomplete-{}.json",
+        std::process::id()
+    ));
+    std::fs::write(&path, r#"{"public":true}"#).unwrap();
+    let error = run_from(
+        [
+            "mealie",
+            "recipes",
+            "bulk-settings",
+            "--recipe",
+            "soup",
+            "--file",
+            path.to_str().unwrap(),
+        ],
+        env(&server.url()),
+    )
+    .unwrap_err();
+    std::fs::remove_file(path).unwrap();
+    assert_eq!(error.code(), ErrorCode::InvalidArgs);
+}
+
+#[test]
+fn bulk_settings_reports_partial_application() {
+    let mut server = Server::new();
+    let path = std::env::temp_dir().join(format!(
+        "mealie-settings-failure-{}.json",
+        std::process::id()
+    ));
+    std::fs::write(&path, r#"{"public":false,"showNutrition":true,"showAssets":false,"landscapeView":false,"disableComments":true}"#).unwrap();
+    let _bulk = server
+        .mock("POST", "/api/recipes/bulk-actions/settings")
+        .with_body("null")
+        .create();
+    let _check = server
+        .mock("GET", "/api/recipes/soup")
+        .with_body(r#"{"id":"r1","slug":"soup","name":"Soup","settings":{"public":true}}"#)
+        .create();
+    let error = run_from(
+        [
+            "mealie",
+            "recipes",
+            "bulk-settings",
+            "--recipe",
+            "soup",
+            "--file",
+            path.to_str().unwrap(),
+        ],
+        env(&server.url()),
+    )
+    .unwrap_err();
+    std::fs::remove_file(path).unwrap();
+    assert!(error.to_human().contains("partial"));
+}
+
+#[test]
 fn merge_tags_sends_from_and_to_ids() {
     let mut server = Server::new();
     let mock = server
