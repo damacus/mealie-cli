@@ -92,6 +92,19 @@ impl<'a> PlanCreateRequest<'a> {
 }
 
 impl MealieClient {
+    pub fn bulk_action(&self, action: &str, payload: &Value) -> Result<(), AppError> {
+        self.http
+            .post(
+                self.config
+                    .endpoint(&format!("/api/recipes/bulk-actions/{action}")),
+            )
+            .bearer_auth(&self.config.token)
+            .json(payload)
+            .send()
+            .map_err(AppError::from)
+            .and_then(|response| checked_optional_json(response, "bulk recipe update"))?;
+        Ok(())
+    }
     pub fn import_recipe(&self, path: &str, payload: &Value) -> Result<String, AppError> {
         let value = self
             .http

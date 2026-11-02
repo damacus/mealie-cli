@@ -97,6 +97,24 @@ pub enum OrganizerCommand {
 
 #[derive(Debug, Subcommand)]
 pub enum RecipesCommand {
+    /// Add tags to several recipes
+    BulkTag {
+        #[arg(long, required = true)]
+        recipe: Vec<String>,
+        #[arg(long, required = true)]
+        tag: Vec<String>,
+        #[arg(long)]
+        dry_run: bool,
+    },
+    /// Add categories to several recipes
+    BulkCategorize {
+        #[arg(long, required = true)]
+        recipe: Vec<String>,
+        #[arg(long, required = true)]
+        category: Vec<String>,
+        #[arg(long)]
+        dry_run: bool,
+    },
     /// Import a recipe from a URL
     ImportUrl {
         #[arg(long)]

@@ -511,6 +511,23 @@ fn execute(
             })
         }
         Command::Recipes(recipes) => match recipes {
+            RecipesCommand::BulkTag {
+                recipe,
+                tag,
+                dry_run,
+            } => bulk_organize(client, &recipe, &tag, "tags", "tag", dry_run),
+            RecipesCommand::BulkCategorize {
+                recipe,
+                category,
+                dry_run,
+            } => bulk_organize(
+                client,
+                &recipe,
+                &category,
+                "categories",
+                "categorize",
+                dry_run,
+            ),
             RecipesCommand::ImportUrl {
                 url,
                 include_tags,
@@ -1079,6 +1096,118 @@ fn execute(
             }),
         },
     }
+}
+
+fn bulk_organize(
+    client: &MealieClient,
+    recipes: &[String],
+    ids: &[String],
+    kind: &str,
+    action: &str,
+    dry_run: bool,
+) -> Result<CommandOutput, AppError> {
+    for value in recipes.iter().chain(ids) {
+        validate_path_segment(value)?;
+    }
+    if recipes
+        .iter()
+        .collect::<std::collections::HashSet<_>>()
+        .len()
+        != recipes.len()
+        || ids.iter().collect::<std::collections::HashSet<_>>().len() != ids.len()
+    {
+        return Err(AppError::new(
+            ErrorCode::InvalidArgs,
+            "duplicate recipes or organisers are not allowed",
+        ));
+    }
+    let mut organizers = Vec::new();
+    for id in ids {
+        let value = client.get_organizer(&format!("/api/organizers/{kind}/{id}"))?;
+        if value.get("id").and_then(serde_json::Value::as_str) != Some(id.as_str())
+            || value
+                .get("name")
+                .and_then(serde_json::Value::as_str)
+                .is_none()
+            || value
+                .get("slug")
+                .and_then(serde_json::Value::as_str)
+                .is_none()
+        {
+            return Err(AppError::new(
+                ErrorCode::ApiError,
+                "invalid organiser response",
+            ));
+        }
+        organizers.push(value);
+    }
+    let mut payload = serde_json::Map::new();
+    payload.insert("recipes".into(), serde_json::json!(recipes));
+    payload.insert(kind.into(), serde_json::json!(organizers));
+    let payload = serde_json::Value::Object(payload);
+    if dry_run {
+        return Ok(CommandOutput {
+            presentation: Presentation::BulkPlan,
+            values: vec![record(
+                "recipe_bulk_plan",
+                [("action", serde_json::json!(action)), ("changes", payload)],
+            )],
+        });
+    }
+    client.bulk_action(action, &payload).map_err(|error| {
+        AppError::new(
+            error.code(),
+            format!("bulk request failed; changes may be partial: {error}"),
+        )
+    })?;
+    let mut results = Vec::new();
+    let field = if kind == "tags" {
+        "tags"
+    } else {
+        "recipeCategory"
+    };
+    for slug in recipes {
+        let recipe = client.get_recipe(slug).map_err(|error| {
+            AppError::new(
+                ErrorCode::ApiError,
+                format!("bulk request was sent but verification failed for {slug}: {error}"),
+            )
+        })?;
+        let found = recipe
+            .raw
+            .get(field)
+            .and_then(serde_json::Value::as_array)
+            .ok_or_else(|| {
+                AppError::new(
+                    ErrorCode::ApiError,
+                    format!("bulk request was sent but {slug} has no {field} data"),
+                )
+            })?;
+        if !ids.iter().all(|id| {
+            found
+                .iter()
+                .any(|item| item.get("id").and_then(serde_json::Value::as_str) == Some(id.as_str()))
+        }) {
+            return Err(AppError::new(
+                ErrorCode::ApiError,
+                format!(
+                    "bulk request was sent but {slug} is missing an assignment; changes may be partial"
+                ),
+            ));
+        }
+        results.push(record(
+            "recipe_bulk_verified",
+            [
+                ("id", serde_json::json!(recipe.id)),
+                ("slug", serde_json::json!(recipe.slug)),
+                ("name", serde_json::json!(recipe.name)),
+            ],
+        ));
+    }
+    Ok(CommandOutput {
+        presentation: Presentation::RecipeList,
+        values: results,
+    })
 }
 
 fn validate_path_segment(value: &str) -> Result<(), AppError> {
