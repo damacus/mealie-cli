@@ -151,3 +151,9 @@ returning an export ID; use `mealie recipes bulk-export list` to find available
 exports, then `bulk-export download --id <id> --output <path>` to save one.
 Downloads refuse to overwrite existing files. `bulk-export purge --yes` removes
 all group exports; `--dry-run` previews the purge or the start request.
+
+`mealie recipes duplicate <slug> --name <name>` copies a recipe; the name is
+optional. `mealie recipes last-made <slug> --timestamp <RFC3339>` records when
+it was made. Both support `--dry-run`. `mealie recipes suggest` asks Mealie for
+suggestions; repeat `--food <id>` and `--tool <id>` and use `--limit` to narrow
+the request. Run `suggest --help` for available missing-item and on-hand options.

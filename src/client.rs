@@ -92,6 +92,45 @@ impl<'a> PlanCreateRequest<'a> {
 }
 
 impl MealieClient {
+    pub fn duplicate_recipe(&self, slug: &str, name: Option<&str>) -> Result<Value, AppError> {
+        self.http
+            .post(
+                self.config
+                    .endpoint(&format!("/api/recipes/{slug}/duplicate")),
+            )
+            .bearer_auth(&self.config.token)
+            .json(&serde_json::json!({"name":name}))
+            .send()
+            .map_err(AppError::from)
+            .and_then(|response| checked_json(response, "duplicate recipe"))
+    }
+    pub fn set_last_made(&self, slug: &str, timestamp: &str) -> Result<Value, AppError> {
+        self.http
+            .patch(
+                self.config
+                    .endpoint(&format!("/api/recipes/{slug}/last-made")),
+            )
+            .bearer_auth(&self.config.token)
+            .json(&serde_json::json!({"timestamp":timestamp}))
+            .send()
+            .map_err(AppError::from)
+            .and_then(|response| checked_json(response, "update last made"))
+    }
+    pub fn suggest_recipes(&self, query: &[(String, String)]) -> Result<Vec<Value>, AppError> {
+        let value = self
+            .http
+            .get(self.config.endpoint("/api/recipes/suggestions"))
+            .bearer_auth(&self.config.token)
+            .query(query)
+            .send()
+            .map_err(AppError::from)
+            .and_then(|response| checked_json(response, "suggest recipes"))?;
+        value
+            .get("items")
+            .and_then(Value::as_array)
+            .cloned()
+            .ok_or_else(|| AppError::new(ErrorCode::ApiError, "suggestion response missing items"))
+    }
     pub fn list_bulk_exports(&self) -> Result<Value, AppError> {
         self.http
             .get(self.config.endpoint("/api/recipes/bulk-actions/export"))
