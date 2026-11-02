@@ -32,6 +32,28 @@ fn lists_untagged_recipes_across_pages() {
 }
 
 #[test]
+fn null_organizer_lists_are_treated_as_missing() {
+    let mut server = Server::new();
+    let mock = server.mock("GET", "/api/recipes").match_query(Matcher::Any)
+        .with_body(r#"{"items":[{"id":"r1","slug":"soup","name":"Soup","tags":null,"recipeCategory":null}],"total_pages":1}"#).create();
+    let output = run_from(
+        [
+            "mealie",
+            "recipes",
+            "list",
+            "--untagged",
+            "--uncategorised",
+            "--json",
+        ],
+        env(&server.url()),
+    )
+    .unwrap();
+    let values: serde_json::Value = serde_json::from_str(&output).unwrap();
+    assert_eq!(values[0]["slug"], "soup");
+    mock.assert();
+}
+
+#[test]
 fn collection_lists_support_existing_pagination_variants() {
     for body in [
         r#"{"items":[{"id":"t1","name":"Quick","slug":"quick"}],"totalPages":1}"#,
@@ -364,6 +386,34 @@ fn adds_a_tag_without_losing_existing_assignments() {
             "new",
             "--json",
         ],
+        env(&server.url()),
+    )
+    .unwrap();
+    recipe.assert();
+    tag.assert();
+    patch.assert();
+}
+
+#[test]
+fn can_add_to_a_null_organizer_list() {
+    let mut server = Server::new();
+    let recipe = server
+        .mock("GET", "/api/recipes/soup")
+        .with_body(r#"{"id":"r1","slug":"soup","name":"Soup","tags":null}"#)
+        .create();
+    let tag = server
+        .mock("GET", "/api/organizers/tags/new")
+        .with_body(r#"{"id":"new","name":"Quick","slug":"quick"}"#)
+        .create();
+    let patch = server
+        .mock("PATCH", "/api/recipes/soup")
+        .match_body(Matcher::Json(
+            serde_json::json!({"tags":[{"id":"new","name":"Quick","slug":"quick"}]}),
+        ))
+        .with_body(r#"{"id":"r1","slug":"soup","name":"Soup"}"#)
+        .create();
+    run_from(
+        ["mealie", "recipes", "organize", "soup", "--add-tag", "new"],
         env(&server.url()),
     )
     .unwrap();
