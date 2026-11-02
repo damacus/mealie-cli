@@ -100,6 +100,16 @@ pub enum OrganizerCommand {
 
 #[derive(Debug, Subcommand)]
 pub enum RecipesCommand {
+    /// Replace a recipe from a JSON object (omitted fields may be reset)
+    Replace {
+        slug: String,
+        #[arg(long)]
+        file: std::path::PathBuf,
+        #[arg(long, conflicts_with = "dry_run")]
+        yes: bool,
+        #[arg(long)]
+        dry_run: bool,
+    },
     /// Queue several recipe URL imports
     BulkImport {
         #[arg(long, required = true)]

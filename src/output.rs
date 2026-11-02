@@ -67,6 +67,9 @@ pub enum Presentation {
         dry_run: bool,
     },
     RecipeSuggestions,
+    RecipeReplace {
+        dry_run: bool,
+    },
     BulkDeleted,
     BulkExportStart {
         dry_run: bool,
@@ -139,6 +142,17 @@ pub fn write_output(mode: OutputMode, output: CommandOutput) -> Result<String, A
 fn write_human(presentation: &Presentation, values: &[Value]) -> String {
     match presentation {
         Presentation::Status => write_status(&values[0]),
+        Presentation::RecipeReplace { dry_run } => {
+            if *dry_run {
+                format!(
+                    "Would replace recipe {} (omitted fields may be reset): {}\n",
+                    text(&values[0], "slug"),
+                    values[0]["changes"]
+                )
+            } else {
+                format!("Replaced recipe: {}\n", text(&values[0], "slug"))
+            }
+        }
         Presentation::BulkImport { dry_run } => {
             if *dry_run {
                 format!("Would queue recipe imports: {}\n", values[0]["request"])

@@ -120,6 +120,9 @@ non-empty JSON object accepted by Mealie's recipe API. The patch changes only
 the supplied fields; include complete arrays when replacing ingredients or
 instructions. `mealie recipes delete <slug> --yes` deletes a recipe. All three
 commands support `--dry-run`; deletion requires either that flag or `--yes`.
+For full replacement use `mealie recipes replace <slug> --file <path>
+--dry-run`, then `--yes` to apply. Unlike a patch, replacement can reset fields
+omitted from the JSON object.
 
 Import recipes with `mealie recipes import-url --url <url>` or `mealie recipes
 import-file --file <path>` for HTML or JSON. Add `--include-tags` and
