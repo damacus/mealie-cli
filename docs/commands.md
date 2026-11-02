@@ -137,3 +137,10 @@ reports an error if the requested assignments are missing.
 previews a deletion. Replace `--dry-run` with `--yes` to execute it. The CLI
 checks that each recipe is no longer accessible afterwards and reports a
 partial-change warning if deletion or verification fails.
+
+`mealie recipes bulk-settings --recipe <slug> --file <path> --dry-run`
+previews replacing settings. The JSON file must contain exactly the boolean
+fields `public`, `showNutrition`, `showAssets`, `landscapeView` and
+`disableComments`. Mealie preserves each recipe's `locked` setting. Without
+`--dry-run`, the CLI submits the replacement and verifies each recipe; an
+error may mean some recipes were already changed.

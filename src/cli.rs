@@ -97,6 +97,15 @@ pub enum OrganizerCommand {
 
 #[derive(Debug, Subcommand)]
 pub enum RecipesCommand {
+    /// Replace settings on several recipes, preserving each lock state
+    BulkSettings {
+        #[arg(long, required = true)]
+        recipe: Vec<String>,
+        #[arg(long)]
+        file: std::path::PathBuf,
+        #[arg(long)]
+        dry_run: bool,
+    },
     /// Delete several recipes
     BulkDelete {
         #[arg(long, required = true)]
