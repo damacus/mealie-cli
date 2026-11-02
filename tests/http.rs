@@ -665,6 +665,63 @@ fn applies_a_recipe_json_patch_from_file() {
 }
 
 #[test]
+fn replacing_recipe_requires_confirmation_and_sends_full_object() {
+    let mut server = Server::new();
+    let path = std::env::temp_dir().join(format!("mealie-replace-{}.json", std::process::id()));
+    std::fs::write(&path, r#"{"name":"Soup","description":"Fresh"}"#).unwrap();
+    let file = path.to_str().unwrap();
+    let error = run_from(
+        ["mealie", "recipes", "replace", "soup", "--file", file],
+        env(&server.url()),
+    )
+    .unwrap_err();
+    assert_eq!(error.code(), ErrorCode::InvalidArgs);
+    let mock = server
+        .mock("PUT", "/api/recipes/soup")
+        .match_body(Matcher::Json(
+            serde_json::json!({"name":"Soup","description":"Fresh"}),
+        ))
+        .with_body(r#"{"id":"r1","name":"Soup","slug":"soup"}"#)
+        .create();
+    let output = run_from(
+        [
+            "mealie", "recipes", "replace", "soup", "--file", file, "--yes", "--quiet",
+        ],
+        env(&server.url()),
+    )
+    .unwrap();
+    std::fs::remove_file(path).unwrap();
+    assert_eq!(output, "r1\n");
+    mock.assert();
+}
+
+#[test]
+fn recipe_replacement_preview_explains_omitted_fields() {
+    let server = Server::new();
+    let path = std::env::temp_dir().join(format!(
+        "mealie-replace-preview-{}.json",
+        std::process::id()
+    ));
+    std::fs::write(&path, r#"{"name":"Soup"}"#).unwrap();
+    let output = run_from(
+        [
+            "mealie",
+            "recipes",
+            "replace",
+            "soup",
+            "--file",
+            path.to_str().unwrap(),
+            "--dry-run",
+        ],
+        env(&server.url()),
+    )
+    .unwrap();
+    std::fs::remove_file(path).unwrap();
+    assert!(output.contains("omitted fields may be reset"));
+    assert!(output.contains("Soup"));
+}
+
+#[test]
 fn imports_recipe_from_url_with_explicit_organizer_options() {
     let mut server = Server::new();
     let mock = server.mock("POST", "/api/recipes/create/url")

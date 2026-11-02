@@ -521,6 +521,60 @@ fn execute(
             })
         }
         Command::Recipes(recipes) => match recipes {
+            RecipesCommand::Replace {
+                slug,
+                file,
+                yes,
+                dry_run,
+            } => {
+                validate_path_segment(&slug)?;
+                if !yes && !dry_run {
+                    return Err(AppError::new(
+                        ErrorCode::InvalidArgs,
+                        "replacement can reset omitted fields; pass --yes or --dry-run",
+                    ));
+                }
+                let data = std::fs::read_to_string(&file).map_err(|error| {
+                    AppError::new(
+                        ErrorCode::InvalidArgs,
+                        format!("cannot read recipe file: {error}"),
+                    )
+                })?;
+                let recipe: serde_json::Value = serde_json::from_str(&data).map_err(|error| {
+                    AppError::new(
+                        ErrorCode::InvalidArgs,
+                        format!("invalid recipe JSON: {error}"),
+                    )
+                })?;
+                if recipe.as_object().is_none_or(serde_json::Map::is_empty) {
+                    return Err(AppError::new(
+                        ErrorCode::InvalidArgs,
+                        "recipe must be a non-empty JSON object",
+                    ));
+                }
+                let mut value = if dry_run {
+                    serde_json::json!({"slug":slug,"changes":recipe})
+                } else {
+                    client.replace_recipe(&slug, &recipe)?
+                };
+                let object = value.as_object_mut().ok_or_else(|| {
+                    AppError::new(ErrorCode::ApiError, "invalid recipe replacement response")
+                })?;
+                object.insert("ok".into(), true.into());
+                object.insert(
+                    "type".into(),
+                    if dry_run {
+                        "recipe_replace_plan"
+                    } else {
+                        "recipe_updated"
+                    }
+                    .into(),
+                );
+                Ok(CommandOutput {
+                    presentation: Presentation::RecipeReplace { dry_run },
+                    values: vec![value],
+                })
+            }
             RecipesCommand::BulkImport {
                 url,
                 tag,
