@@ -112,3 +112,10 @@ Use `mealie recipes image set-url <slug> --url <image-url>` to replace an
 image from a direct URL, subject to the Mealie server's allowed-domain rules.
 Use `mealie recipes image delete <slug> --yes` to delete an image. Both accept
 `--dry-run`; the current image reference is included in structured recipe details.
+
+Use `mealie recipes create --name <name>` to create an empty recipe. Use
+`mealie recipes patch <slug> --file <path>` to update recipe fields from a
+non-empty JSON object accepted by Mealie's recipe API. The patch changes only
+the supplied fields; include complete arrays when replacing ingredients or
+instructions. `mealie recipes delete <slug> --yes` deletes a recipe. All three
+commands support `--dry-run`; deletion requires either that flag or `--yes`.
