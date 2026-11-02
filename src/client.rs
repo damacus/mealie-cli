@@ -92,6 +92,42 @@ impl<'a> PlanCreateRequest<'a> {
 }
 
 impl MealieClient {
+    pub fn merge_organizer(&self, path: &str, from: &str, to: &str) -> Result<Value, AppError> {
+        self.http
+            .post(self.config.endpoint(&format!("{path}/merge")))
+            .bearer_auth(&self.config.token)
+            .json(&serde_json::json!({"fromId":from,"toId":to}))
+            .send()
+            .map_err(AppError::from)
+            .and_then(|response| checked_json(response, "merge organiser"))
+    }
+    pub fn delete_organizer(&self, path: &str) -> Result<(), AppError> {
+        self.http
+            .delete(self.config.endpoint(path))
+            .bearer_auth(&self.config.token)
+            .send()
+            .map_err(AppError::from)
+            .and_then(|response| checked_optional_json(response, "delete organiser"))?;
+        Ok(())
+    }
+    pub fn get_organizer(&self, path: &str) -> Result<Value, AppError> {
+        self.http
+            .get(self.config.endpoint(path))
+            .bearer_auth(&self.config.token)
+            .send()
+            .map_err(AppError::from)
+            .and_then(|response| checked_json(response, "get organiser"))
+    }
+
+    pub fn rename_organizer(&self, path: &str, name: &str) -> Result<Value, AppError> {
+        self.http
+            .put(self.config.endpoint(path))
+            .bearer_auth(&self.config.token)
+            .json(&serde_json::json!({"name": name}))
+            .send()
+            .map_err(AppError::from)
+            .and_then(|response| checked_json(response, "update organiser"))
+    }
     pub fn create_organizer(&self, path: &str, name: &str) -> Result<Value, AppError> {
         self.http
             .post(self.config.endpoint(path))

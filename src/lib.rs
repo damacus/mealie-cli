@@ -257,6 +257,187 @@ fn execute(
     match command {
         Command::Completion { .. } => unreachable!("completion output is generated before config"),
         Command::Status => unreachable!("status is handled before client creation"),
+        Command::Tags(cli::OrganizerCommand::Merge {
+            ref from,
+            ref to,
+            yes,
+            dry_run,
+        })
+        | Command::Categories(cli::OrganizerCommand::Merge {
+            ref from,
+            ref to,
+            yes,
+            dry_run,
+        }) => {
+            validate_path_segment(from)?;
+            validate_path_segment(to)?;
+            if from == to {
+                return Err(AppError::new(
+                    ErrorCode::InvalidArgs,
+                    "source and target must differ",
+                ));
+            }
+            if !yes && !dry_run {
+                return Err(AppError::new(
+                    ErrorCode::InvalidArgs,
+                    "merge removes the source; pass --yes or --dry-run",
+                ));
+            }
+            let base = if matches!(command, Command::Tags(_)) {
+                "/api/organizers/tags"
+            } else {
+                "/api/organizers/categories"
+            };
+            let mut value = if dry_run {
+                serde_json::json!({"id":to,"fromId":from,"toId":to})
+            } else {
+                client.merge_organizer(base, from, to)?
+            };
+            let object = value
+                .as_object_mut()
+                .ok_or_else(|| AppError::new(ErrorCode::ApiError, "invalid organiser response"))?;
+            object.insert("ok".into(), true.into());
+            object.insert(
+                "type".into(),
+                if dry_run {
+                    "organizer_merge_plan"
+                } else {
+                    "organizer_merged"
+                }
+                .into(),
+            );
+            Ok(CommandOutput {
+                presentation: Presentation::OrganizerChange {
+                    action: if dry_run {
+                        "Would merge into"
+                    } else {
+                        "Merged into"
+                    },
+                },
+                values: vec![value],
+            })
+        }
+        Command::Tags(cli::OrganizerCommand::Delete {
+            ref id,
+            yes,
+            dry_run,
+        })
+        | Command::Categories(cli::OrganizerCommand::Delete {
+            ref id,
+            yes,
+            dry_run,
+        }) => {
+            validate_path_segment(id)?;
+            if !yes && !dry_run {
+                return Err(AppError::new(
+                    ErrorCode::InvalidArgs,
+                    "delete removes the organiser; pass --yes or --dry-run",
+                ));
+            }
+            let base = if matches!(command, Command::Tags(_)) {
+                "/api/organizers/tags"
+            } else {
+                "/api/organizers/categories"
+            };
+            if !dry_run {
+                client.delete_organizer(&format!("{base}/{id}"))?;
+            }
+            Ok(CommandOutput {
+                presentation: Presentation::OrganizerChange {
+                    action: if dry_run { "Would delete" } else { "Deleted" },
+                },
+                values: vec![record(
+                    if dry_run {
+                        "organizer_delete_plan"
+                    } else {
+                        "organizer_deleted"
+                    },
+                    [("id", serde_json::json!(id))],
+                )],
+            })
+        }
+        Command::Tags(cli::OrganizerCommand::Get { ref id, ref slug })
+        | Command::Categories(cli::OrganizerCommand::Get { ref id, ref slug }) => {
+            let base = if matches!(command, Command::Tags(_)) {
+                "/api/organizers/tags"
+            } else {
+                "/api/organizers/categories"
+            };
+            let (prefix, identifier) = if let Some(id) = id {
+                ("", id)
+            } else {
+                ("slug/", slug.as_ref().expect("identifier is required"))
+            };
+            validate_path_segment(identifier)?;
+            let mut value = client.get_organizer(&format!("{base}/{prefix}{identifier}"))?;
+            let object = value
+                .as_object_mut()
+                .ok_or_else(|| AppError::new(ErrorCode::ApiError, "invalid organiser response"))?;
+            object.insert("ok".into(), true.into());
+            object.insert("type".into(), "organizer".into());
+            Ok(CommandOutput {
+                presentation: Presentation::OrganizerList {
+                    plural: if base.ends_with("tags") {
+                        "tags"
+                    } else {
+                        "categories"
+                    },
+                },
+                values: vec![value],
+            })
+        }
+        Command::Tags(cli::OrganizerCommand::Rename {
+            ref id,
+            ref name,
+            dry_run,
+        })
+        | Command::Categories(cli::OrganizerCommand::Rename {
+            ref id,
+            ref name,
+            dry_run,
+        }) => {
+            validate_path_segment(id)?;
+            if name.trim().is_empty() {
+                return Err(AppError::new(
+                    ErrorCode::InvalidArgs,
+                    "organiser name cannot be empty",
+                ));
+            }
+            let base = if matches!(command, Command::Tags(_)) {
+                "/api/organizers/tags"
+            } else {
+                "/api/organizers/categories"
+            };
+            let mut value = if dry_run {
+                serde_json::json!({"id":id,"name":name})
+            } else {
+                client.rename_organizer(&format!("{base}/{id}"), name)?
+            };
+            let object = value
+                .as_object_mut()
+                .ok_or_else(|| AppError::new(ErrorCode::ApiError, "invalid organiser response"))?;
+            object.insert("ok".into(), true.into());
+            object.insert(
+                "type".into(),
+                if dry_run {
+                    "organizer_rename_plan"
+                } else {
+                    "organizer_updated"
+                }
+                .into(),
+            );
+            Ok(CommandOutput {
+                presentation: Presentation::OrganizerRename {
+                    kind: if base.ends_with("tags") {
+                        "tag"
+                    } else {
+                        "category"
+                    },
+                    dry_run,
+                },
+                values: vec![value],
+            })
+        }
         Command::Tags(cli::OrganizerCommand::Create { ref name, dry_run })
         | Command::Categories(cli::OrganizerCommand::Create { ref name, dry_run }) => {
             if name.trim().is_empty() {
@@ -471,6 +652,21 @@ fn execute(
             }),
         },
     }
+}
+
+fn validate_path_segment(value: &str) -> Result<(), AppError> {
+    if value.is_empty()
+        || matches!(value, "." | "..")
+        || value
+            .chars()
+            .any(|c| matches!(c, '/' | '\\' | '?' | '#' | '%'))
+    {
+        return Err(AppError::new(
+            ErrorCode::InvalidArgs,
+            "identifier must be a single path segment",
+        ));
+    }
+    Ok(())
 }
 
 fn terminal_columns(env_vars: &[(String, String)]) -> usize {

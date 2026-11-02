@@ -89,6 +89,13 @@ existing organisers. Use `--json` or `--ndjson` for structured results.
 Use `mealie tags create --name <name>` or `mealie categories create --name
 <name>` to create one; add `--dry-run` to preview it.
 
+Use `mealie tags get --slug <slug>` or `--id <id>` to inspect an organiser;
+the same commands work under `categories`. Rename one with `rename --id <id>
+--name <name>`. Merge with `merge --from <id> --to <id>`, or delete with
+`delete --id <id>`. Merge removes the source organiser and delete removes the
+specified organiser: both require either `--yes` to execute or `--dry-run` to
+preview the action. Rename also supports `--dry-run`.
+
 `mealie recipes update <slug> --description <text>` updates a description.
 Add `--dry-run` to show the proposed change without sending it to Mealie.
 Structured `recipes get` output includes catalogue metadata when supplied by
