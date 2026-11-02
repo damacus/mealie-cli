@@ -412,6 +412,107 @@ fn adding_duplicate_tag_is_rejected_without_a_write() {
 }
 
 #[test]
+fn sets_recipe_image_from_url() {
+    let mut server = Server::new();
+    let _recipe = server
+        .mock("GET", "/api/recipes/soup")
+        .with_body(r#"{"id":"r1","slug":"soup","name":"Soup"}"#)
+        .create();
+    let mock = server
+        .mock("POST", "/api/recipes/soup/image")
+        .match_body(Matcher::Json(
+            serde_json::json!({"url":"https://example.com/soup.jpg"}),
+        ))
+        .with_body(r#"{"image":"version2"}"#)
+        .create();
+    let output = run_from(
+        [
+            "mealie",
+            "recipes",
+            "image",
+            "set-url",
+            "soup",
+            "--url",
+            "https://example.com/soup.jpg",
+            "--json",
+        ],
+        env(&server.url()),
+    )
+    .unwrap();
+    let values: serde_json::Value = serde_json::from_str(&output).unwrap();
+    assert_eq!(values[0]["image"], "version2");
+    mock.assert();
+}
+
+#[test]
+fn recipe_image_delete_requires_confirmation() {
+    let mut server = Server::new();
+    let error = run_from(
+        ["mealie", "recipes", "image", "delete", "soup"],
+        env(&server.url()),
+    )
+    .unwrap_err();
+    assert_eq!(error.code(), ErrorCode::InvalidArgs);
+    let _recipe = server
+        .mock("GET", "/api/recipes/soup")
+        .with_body(r#"{"id":"r1","slug":"soup","name":"Soup"}"#)
+        .create();
+    let mock = server
+        .mock("DELETE", "/api/recipes/soup/image")
+        .with_status(204)
+        .create();
+    run_from(
+        ["mealie", "recipes", "image", "delete", "soup", "--yes"],
+        env(&server.url()),
+    )
+    .unwrap();
+    mock.assert();
+}
+
+#[test]
+fn recipe_image_preview_is_read_only_and_rejects_credential_urls() {
+    let mut server = Server::new();
+    let recipe = server
+        .mock("GET", "/api/recipes/soup")
+        .with_body(r#"{"id":"r1","slug":"soup","name":"Soup"}"#)
+        .expect(1)
+        .create();
+    let error = run_from(
+        [
+            "mealie",
+            "recipes",
+            "image",
+            "set-url",
+            "soup",
+            "--url",
+            "https://user:secret@example.com/a.jpg",
+        ],
+        env(&server.url()),
+    )
+    .unwrap_err();
+    assert_eq!(error.code(), ErrorCode::InvalidArgs);
+    let output = run_from(
+        [
+            "mealie",
+            "recipes",
+            "image",
+            "set-url",
+            "soup",
+            "--url",
+            "https://example.com/a.jpg",
+            "--dry-run",
+            "--json",
+        ],
+        env(&server.url()),
+    )
+    .unwrap();
+    let values: serde_json::Value = serde_json::from_str(&output).unwrap();
+    assert_eq!(values[0]["url"], "https://example.com/a.jpg");
+    assert_eq!(values[0]["type"], "recipe_image_plan");
+    recipe.assert();
+}
+
+#[test]
 fn merge_tags_sends_from_and_to_ids() {
     let mut server = Server::new();
     let mock = server

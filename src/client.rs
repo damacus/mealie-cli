@@ -92,6 +92,24 @@ impl<'a> PlanCreateRequest<'a> {
 }
 
 impl MealieClient {
+    pub fn set_image_url(&self, slug: &str, url: &str) -> Result<Value, AppError> {
+        self.http
+            .post(self.config.endpoint(&format!("/api/recipes/{slug}/image")))
+            .bearer_auth(&self.config.token)
+            .json(&serde_json::json!({"url":url}))
+            .send()
+            .map_err(AppError::from)
+            .and_then(|response| checked_json(response, "set recipe image"))
+    }
+    pub fn delete_image(&self, slug: &str) -> Result<(), AppError> {
+        self.http
+            .delete(self.config.endpoint(&format!("/api/recipes/{slug}/image")))
+            .bearer_auth(&self.config.token)
+            .send()
+            .map_err(AppError::from)
+            .and_then(|response| checked_optional_json(response, "delete recipe image"))?;
+        Ok(())
+    }
     pub fn merge_organizer(&self, path: &str, from: &str, to: &str) -> Result<Value, AppError> {
         self.http
             .post(self.config.endpoint(&format!("{path}/merge")))

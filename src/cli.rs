@@ -97,6 +97,9 @@ pub enum OrganizerCommand {
 
 #[derive(Debug, Subcommand)]
 pub enum RecipesCommand {
+    /// Manage a recipe image
+    #[command(subcommand)]
+    Image(RecipeImageCommand),
     /// Add or remove a tag or category by ID
     #[command(group(clap::ArgGroup::new("organizer_change").required(true).args(["add_tag", "remove_tag", "add_category", "remove_category"])))]
     Organize {
@@ -140,6 +143,26 @@ pub enum RecipesCommand {
     Get {
         /// Recipe slug, or an exact case-insensitive recipe name
         slug: String,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+pub enum RecipeImageCommand {
+    /// Set an image from a direct URL
+    SetUrl {
+        slug: String,
+        #[arg(long)]
+        url: String,
+        #[arg(long)]
+        dry_run: bool,
+    },
+    /// Delete the recipe image
+    Delete {
+        slug: String,
+        #[arg(long, conflicts_with = "dry_run")]
+        yes: bool,
+        #[arg(long)]
+        dry_run: bool,
     },
 }
 
