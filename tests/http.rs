@@ -1329,6 +1329,122 @@ fn recipe_action_previews_and_invalid_timestamps_are_read_only() {
 }
 
 #[test]
+fn bulk_import_urls_returns_report_id() {
+    let mut server = Server::new();
+    let mock = server.mock("POST", "/api/recipes/create/url/bulk")
+        .match_body(Matcher::Json(serde_json::json!({"imports":[{"url":"https://example.com/a"},{"url":"https://example.com/b"}]})))
+        .with_status(202).with_body(r#"{"reportId":"report1"}"#).create();
+    let output = run_from(
+        [
+            "mealie",
+            "recipes",
+            "bulk-import",
+            "--url",
+            "https://example.com/a",
+            "--url",
+            "https://example.com/b",
+            "--json",
+        ],
+        env(&server.url()),
+    )
+    .unwrap();
+    let values: serde_json::Value = serde_json::from_str(&output).unwrap();
+    assert_eq!(values[0]["reportId"], "report1");
+    mock.assert();
+}
+
+#[test]
+fn bulk_import_report_can_be_retrieved() {
+    let mut server = Server::new();
+    let mock = server
+        .mock("GET", "/api/groups/reports/report1")
+        .with_body(r#"{"id":"report1","status":"pending"}"#)
+        .create();
+    let output = run_from(
+        [
+            "mealie",
+            "recipes",
+            "import-report",
+            "--id",
+            "report1",
+            "--json",
+        ],
+        env(&server.url()),
+    )
+    .unwrap();
+    let values: serde_json::Value = serde_json::from_str(&output).unwrap();
+    assert_eq!(values[0]["status"], "pending");
+    mock.assert();
+}
+
+#[test]
+fn bulk_import_report_shows_status_and_entry_messages() {
+    let mut server = Server::new();
+    let _mock = server.mock("GET", "/api/groups/reports/report1").with_body(r#"{"id":"report1","status":"finished","entries":[{"success":false,"message":"Import failed"}]}"#).create();
+    let output = run_from(
+        ["mealie", "recipes", "import-report", "--id", "report1"],
+        env(&server.url()),
+    )
+    .unwrap();
+    assert!(output.contains("finished"));
+    assert!(output.contains("Import failed"));
+    assert!(!output.contains("\"status\":"));
+}
+
+#[test]
+fn bulk_import_preview_includes_selected_organizers() {
+    let mut server = Server::new();
+    let _tag = server
+        .mock("GET", "/api/organizers/tags/t1")
+        .with_body(r#"{"id":"t1","name":"Quick","slug":"quick"}"#)
+        .create();
+    let _category = server
+        .mock("GET", "/api/organizers/categories/c1")
+        .with_body(r#"{"id":"c1","name":"Main","slug":"main"}"#)
+        .create();
+    let output = run_from(
+        [
+            "mealie",
+            "recipes",
+            "bulk-import",
+            "--url",
+            "https://example.com/a",
+            "--tag",
+            "t1",
+            "--category",
+            "c1",
+            "--dry-run",
+            "--json",
+        ],
+        env(&server.url()),
+    )
+    .unwrap();
+    let values: serde_json::Value = serde_json::from_str(&output).unwrap();
+    assert_eq!(values[0]["request"]["imports"][0]["tags"][0]["id"], "t1");
+    assert_eq!(
+        values[0]["request"]["imports"][0]["categories"][0]["id"],
+        "c1"
+    );
+}
+
+#[test]
+fn bulk_import_rejects_credential_urls_before_request() {
+    let server = Server::new();
+    let error = run_from(
+        [
+            "mealie",
+            "recipes",
+            "bulk-import",
+            "--url",
+            "https://name:secret@example.com/a",
+        ],
+        env(&server.url()),
+    )
+    .unwrap_err();
+    assert_eq!(error.code(), ErrorCode::InvalidArgs);
+}
+
+#[test]
 fn merge_tags_sends_from_and_to_ids() {
     let mut server = Server::new();
     let mock = server

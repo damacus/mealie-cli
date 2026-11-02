@@ -75,6 +75,10 @@ pub enum Presentation {
     BulkExportPurge {
         dry_run: bool,
     },
+    BulkImport {
+        dry_run: bool,
+    },
+    ImportReport,
     RecipeDelete {
         dry_run: bool,
     },
@@ -135,6 +139,35 @@ pub fn write_output(mode: OutputMode, output: CommandOutput) -> Result<String, A
 fn write_human(presentation: &Presentation, values: &[Value]) -> String {
     match presentation {
         Presentation::Status => write_status(&values[0]),
+        Presentation::BulkImport { dry_run } => {
+            if *dry_run {
+                format!("Would queue recipe imports: {}\n", values[0]["request"])
+            } else {
+                format!(
+                    "Recipe imports queued; check report {} with recipes import-report --id.\n",
+                    text(&values[0], "reportId")
+                )
+            }
+        }
+        Presentation::ImportReport => {
+            let report = &values[0];
+            let mut output = format!(
+                "Import report {}: {}\n",
+                text(report, "id"),
+                text(report, "status")
+            );
+            if let Some(entries) = report.get("entries").and_then(Value::as_array) {
+                for entry in entries {
+                    let state = match entry.get("success").and_then(Value::as_bool) {
+                        Some(true) => "OK",
+                        Some(false) => "Failed",
+                        None => "Unknown",
+                    };
+                    output.push_str(&format!("{state}: {}\n", text(entry, "message")));
+                }
+            }
+            output
+        }
         Presentation::RecipeDuplicate { dry_run } => {
             if *dry_run {
                 format!(
@@ -584,12 +617,16 @@ fn write_quiet(values: &[Value]) -> String {
                         | "recipe_bulk_verified"
                         | "recipe_bulk_deleted"
                         | "recipe_duplicated"
+                        | "recipe_bulk_import_requested"
                 )
             )
         })
         .filter_map(|value| {
             value.get("id").or_else(|| {
-                if matches!(
+                if value.get("type").and_then(Value::as_str) == Some("recipe_bulk_import_requested")
+                {
+                    value.get("reportId")
+                } else if matches!(
                     value.get("type").and_then(Value::as_str),
                     Some("recipe_created" | "recipe_imported" | "recipe_bulk_deleted")
                 ) {

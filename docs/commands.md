@@ -157,3 +157,8 @@ optional. `mealie recipes last-made <slug> --timestamp <RFC3339>` records when
 it was made. Both support `--dry-run`. `mealie recipes suggest` asks Mealie for
 suggestions; repeat `--food <id>` and `--tool <id>` and use `--limit` to narrow
 the request. Run `suggest --help` for available missing-item and on-hand options.
+
+Queue URL imports with `mealie recipes bulk-import --url <url> --url <url>`.
+Optional repeated `--tag <id>` and `--category <id>` flags apply organisers to
+each import. Add `--dry-run` to preview. The command returns a report ID, not
+completed recipes; inspect it with `mealie recipes import-report --id <id>`.
