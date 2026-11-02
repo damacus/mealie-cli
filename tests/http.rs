@@ -9,6 +9,229 @@ fn env(url: &str) -> Vec<(&str, &str)> {
     ]
 }
 
+// Schema: https://mealie.io/documentation/getting-started/api-usage/
+#[test]
+fn lists_untagged_recipes_across_pages() {
+    let mut server = Server::new();
+    let first = server.mock("GET", "/api/recipes")
+        .match_query(Matcher::AllOf(vec![Matcher::UrlEncoded("perPage".into(), "100".into()), Matcher::UrlEncoded("page".into(), "1".into())]))
+        .with_body(r#"{"items":[{"id":"1","slug":"one","name":"One","tags":[],"recipeCategory":[]}],"total_pages":2}"#).create();
+    let second = server.mock("GET", "/api/recipes")
+        .match_query(Matcher::AllOf(vec![Matcher::UrlEncoded("perPage".into(), "100".into()), Matcher::UrlEncoded("page".into(), "2".into())]))
+        .with_body(r#"{"items":[{"id":"2","slug":"two","name":"Two","tags":[{"name":"Dinner"}],"recipeCategory":[]}],"total_pages":2}"#).create();
+    let output = run_from(
+        ["mealie", "recipes", "list", "--untagged", "--json"],
+        env(&server.url()),
+    )
+    .unwrap();
+    let values: serde_json::Value = serde_json::from_str(&output).unwrap();
+    assert_eq!(values.as_array().unwrap().len(), 1);
+    assert_eq!(values[0]["slug"], "one");
+    first.assert();
+    second.assert();
+}
+
+#[test]
+fn recipe_details_include_catalogue_metadata() {
+    let mut server = Server::new();
+    let _mock = server.mock("GET", "/api/recipes/soup").with_body(r#"{"id":"1","slug":"soup","name":"Soup","description":"A soup","tags":[{"name":"Quick"}],"recipeCategory":[{"name":"Starter"}],"recipeInstructions":[{"text":"Cook"}],"image":"abc"}"#).create();
+    let output = run_from(
+        ["mealie", "recipes", "get", "soup", "--json"],
+        env(&server.url()),
+    )
+    .unwrap();
+    let values: serde_json::Value = serde_json::from_str(&output).unwrap();
+    assert_eq!(values[0]["description"], "A soup");
+    assert_eq!(values[0]["tags"][0]["name"], "Quick");
+    assert_eq!(values[0]["recipeCategory"][0]["name"], "Starter");
+    assert_eq!(values[0]["recipeInstructions"][0]["text"], "Cook");
+    assert_eq!(values[0]["image"], "abc");
+}
+
+#[test]
+fn recipe_details_preserve_other_mealie_fields() {
+    let mut server = Server::new();
+    let _mock = server.mock("GET", "/api/recipes/soup").with_body(r#"{"id":"1","slug":"soup","name":"Soup","notes":[{"title":"Tip","text":"Season"}],"prepTime":"10 minutes"}"#).create();
+    let output = run_from(
+        ["mealie", "recipes", "get", "soup", "--json"],
+        env(&server.url()),
+    )
+    .unwrap();
+    let values: serde_json::Value = serde_json::from_str(&output).unwrap();
+    assert_eq!(values[0]["notes"][0]["text"], "Season");
+    assert_eq!(values[0]["prepTime"], "10 minutes");
+}
+
+#[test]
+fn quiet_create_prints_the_created_id() {
+    let mut server = Server::new();
+    let _mock = server
+        .mock("POST", "/api/organizers/tags")
+        .match_body(Matcher::Json(serde_json::json!({"name":"Quick"})))
+        .with_status(201)
+        .with_body(r#"{"id":"t1","name":"Quick","slug":"quick"}"#)
+        .create();
+    let output = run_from(
+        ["mealie", "tags", "create", "--name", "Quick", "--quiet"],
+        env(&server.url()),
+    )
+    .unwrap();
+    assert_eq!(output, "t1\n");
+}
+
+#[test]
+fn dry_run_does_not_send_an_update() {
+    let server = Server::new();
+    let output = run_from(
+        [
+            "mealie",
+            "recipes",
+            "update",
+            "soup",
+            "--description",
+            "Fresh",
+            "--dry-run",
+            "--json",
+        ],
+        env(&server.url()),
+    )
+    .unwrap();
+    let values: serde_json::Value = serde_json::from_str(&output).unwrap();
+    assert_eq!(values[0]["type"], "recipe_update_plan");
+    assert_eq!(values[0]["changes"]["description"], "Fresh");
+}
+
+#[test]
+fn recipe_update_rejects_path_manipulation() {
+    let server = Server::new();
+    for slug in ["../other", "soup?x=1", "%2e%2e"] {
+        let error = run_from(
+            [
+                "mealie",
+                "recipes",
+                "update",
+                slug,
+                "--description",
+                "Fresh",
+            ],
+            env(&server.url()),
+        )
+        .unwrap_err();
+        assert_eq!(error.code(), ErrorCode::InvalidArgs);
+    }
+}
+
+#[test]
+fn organizer_create_dry_run_is_clear_in_human_output() {
+    let server = Server::new();
+    let output = run_from(
+        ["mealie", "tags", "create", "--name", "Quick", "--dry-run"],
+        env(&server.url()),
+    )
+    .unwrap();
+    assert_eq!(output, "Would create tag: Quick\n");
+}
+
+#[test]
+fn empty_categories_are_described_as_categories() {
+    let mut server = Server::new();
+    let _mock = server
+        .mock("GET", "/api/organizers/categories")
+        .match_query(Matcher::Any)
+        .with_body(r#"{"items":[],"total_pages":0}"#)
+        .create();
+    let output = run_from(["mealie", "categories", "list"], env(&server.url())).unwrap();
+    assert_eq!(output, "No categories found.\n");
+}
+
+#[test]
+fn rejects_missing_organiser_data_in_filtered_recipe_list() {
+    let mut server = Server::new();
+    let _mock = server
+        .mock("GET", "/api/recipes")
+        .with_body(r#"{"items":[{"id":"1","slug":"one","name":"One"}],"total_pages":1}"#)
+        .create();
+    let error = run_from(
+        ["mealie", "recipes", "list", "--untagged"],
+        env(&server.url()),
+    )
+    .unwrap_err();
+    assert_eq!(error.code(), ErrorCode::ApiError);
+}
+
+#[test]
+fn update_description_sends_only_the_requested_field() {
+    let mut server = Server::new();
+    let patch = server
+        .mock("PATCH", "/api/recipes/soup")
+        .match_header("authorization", "Bearer secret-token")
+        .match_body(Matcher::Json(
+            serde_json::json!({"description":"Fresh soup"}),
+        ))
+        .with_status(200)
+        .with_body(r#"{"id":"1","slug":"soup","name":"Soup"}"#)
+        .create();
+    let output = run_from(
+        [
+            "mealie",
+            "recipes",
+            "update",
+            "soup",
+            "--description",
+            "Fresh soup",
+            "--json",
+        ],
+        env(&server.url()),
+    )
+    .unwrap();
+    let value: serde_json::Value = serde_json::from_str(&output).unwrap();
+    assert_eq!(value[0]["slug"], "soup");
+    patch.assert();
+}
+
+#[test]
+fn lists_tags() {
+    let mut server = Server::new();
+    let mock = server
+        .mock("GET", "/api/organizers/tags")
+        .match_query(Matcher::AllOf(vec![
+            Matcher::UrlEncoded("perPage".into(), "100".into()),
+            Matcher::UrlEncoded("page".into(), "1".into()),
+        ]))
+        .with_body(r#"{"items":[{"id":"1","name":"Quick","slug":"quick"}],"total_pages":1}"#)
+        .create();
+    let output = run_from(["mealie", "tags", "list", "--json"], env(&server.url())).unwrap();
+    let values: serde_json::Value = serde_json::from_str(&output).unwrap();
+    assert_eq!(values[0]["name"], "Quick");
+    mock.assert();
+}
+
+#[test]
+fn creates_category_with_name() {
+    let mut server = Server::new();
+    let mock = server
+        .mock("POST", "/api/organizers/categories")
+        .match_body(Matcher::Json(serde_json::json!({"name":"Starter"})))
+        .with_status(201)
+        .with_body(r#"{"id":"1","name":"Starter","slug":"starter"}"#)
+        .create();
+    let output = run_from(
+        [
+            "mealie",
+            "categories",
+            "create",
+            "--name",
+            "Starter",
+            "--json",
+        ],
+        env(&server.url()),
+    )
+    .unwrap();
+    let values: serde_json::Value = serde_json::from_str(&output).unwrap();
+    assert_eq!(values[0]["name"], "Starter");
+    mock.assert();
+}
+
 #[test]
 fn status_checks_configuration_connectivity_and_authentication() {
     let mut server = Server::new();

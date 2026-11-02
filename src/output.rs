@@ -29,6 +29,15 @@ impl OutputMode {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Presentation {
     Status,
+    RecipeList,
+    OrganizerList {
+        plural: &'static str,
+    },
+    OrganizerCreate {
+        kind: &'static str,
+        dry_run: bool,
+    },
+    RecipeUpdate,
     RecipeSearch {
         query: String,
     },
@@ -86,6 +95,42 @@ pub fn write_output(mode: OutputMode, output: CommandOutput) -> Result<String, A
 fn write_human(presentation: &Presentation, values: &[Value]) -> String {
     match presentation {
         Presentation::Status => write_status(&values[0]),
+        Presentation::OrganizerCreate { kind, dry_run } => format!(
+            "{} {kind}: {}\n",
+            if *dry_run { "Would create" } else { "Created" },
+            text(&values[0], "name")
+        ),
+        Presentation::OrganizerList { plural } if values.is_empty() => {
+            format!("No {plural} found.\n")
+        }
+        Presentation::OrganizerList { .. } => table(
+            &["NAME", "SLUG", "ID"],
+            values
+                .iter()
+                .map(|value| vec![text(value, "name"), text(value, "slug"), text(value, "id")])
+                .collect(),
+        ),
+        Presentation::RecipeUpdate => format!(
+            "Recipe {}: {}\n",
+            if text(&values[0], "type") == "recipe_update_plan" {
+                "update planned"
+            } else {
+                "updated"
+            },
+            text(&values[0], "slug")
+        ),
+        Presentation::RecipeList => {
+            if values.is_empty() {
+                return "No recipes found.\n".to_string();
+            }
+            table(
+                &["NAME", "SLUG", "ID"],
+                values
+                    .iter()
+                    .map(|value| vec![text(value, "name"), text(value, "slug"), text(value, "id")])
+                    .collect(),
+            )
+        }
         Presentation::RecipeSearch { query } => {
             if is_empty(values) {
                 return format!("No recipes found for \"{query}\".\n");
@@ -318,7 +363,7 @@ fn write_quiet(values: &[Value]) -> String {
         .filter(|value| {
             matches!(
                 value.get("type").and_then(Value::as_str),
-                Some("plan_created" | "plan_deleted")
+                Some("plan_created" | "plan_deleted" | "organizer_created" | "recipe_updated")
             )
         })
         .filter_map(|value| value.get("id"))

@@ -17,6 +17,7 @@ pub struct MealieClient {
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct Recipe {
+    pub raw: Value,
     pub id: String,
     pub slug: String,
     pub name: String,
@@ -91,6 +92,63 @@ impl<'a> PlanCreateRequest<'a> {
 }
 
 impl MealieClient {
+    pub fn create_organizer(&self, path: &str, name: &str) -> Result<Value, AppError> {
+        self.http
+            .post(self.config.endpoint(path))
+            .bearer_auth(&self.config.token)
+            .json(&serde_json::json!({"name": name}))
+            .send()
+            .map_err(AppError::from)
+            .and_then(|response| checked_json(response, "create organiser"))
+    }
+    pub fn update_recipe(&self, slug: &str, patch: &Value) -> Result<Value, AppError> {
+        self.http
+            .patch(self.config.endpoint(&format!("/api/recipes/{slug}")))
+            .bearer_auth(&self.config.token)
+            .json(patch)
+            .send()
+            .map_err(AppError::from)
+            .and_then(|response| checked_json(response, "update recipe"))
+    }
+    pub fn list_recipes(&self) -> Result<Vec<Value>, AppError> {
+        self.list_collection("/api/recipes")
+    }
+
+    pub fn list_collection(&self, path: &str) -> Result<Vec<Value>, AppError> {
+        let mut page = 1_u64;
+        let mut result = Vec::new();
+        loop {
+            let value = self
+                .http
+                .get(self.config.endpoint(path))
+                .bearer_auth(&self.config.token)
+                .query(&[("perPage", "100".to_string()), ("page", page.to_string())])
+                .send()
+                .map_err(AppError::from)
+                .and_then(|response| checked_json(response, "list recipes"))?;
+            let items = value
+                .get("items")
+                .and_then(Value::as_array)
+                .ok_or_else(|| {
+                    AppError::new(ErrorCode::ApiError, "recipe list response missing items")
+                })?;
+            result.extend(items.iter().cloned());
+            let total_pages = value
+                .get("total_pages")
+                .and_then(Value::as_u64)
+                .ok_or_else(|| {
+                    AppError::new(
+                        ErrorCode::ApiError,
+                        "recipe list response missing total_pages",
+                    )
+                })?;
+            if page >= total_pages {
+                break;
+            }
+            page += 1;
+        }
+        Ok(result)
+    }
     pub fn new(config: Config) -> Result<Self, AppError> {
         let http = Client::builder()
             // Bound external API calls so an unresponsive Mealie server cannot hang automation indefinitely.
@@ -412,6 +470,7 @@ fn recipe_from_value(value: &Value) -> Result<Recipe, AppError> {
     check_error_value(value)?;
 
     Ok(Recipe {
+        raw: value.clone(),
         id: required_string(value, &["id", "recipeId"])?,
         slug: required_string(value, &["slug"])?,
         name: required_string(value, &["name"])?,
