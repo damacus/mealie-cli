@@ -48,7 +48,10 @@ pub enum Command {
 #[derive(Debug, Subcommand)]
 pub enum OrganizerCommand {
     /// List all organisers
-    List,
+    List {
+        #[arg(long)]
+        empty: bool,
+    },
     /// Get an organiser by ID or slug
     #[command(group(clap::ArgGroup::new("organizer_identifier").required(true).args(["id", "slug"])))]
     Get {

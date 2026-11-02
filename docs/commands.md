@@ -86,6 +86,7 @@ Recipe references first match an exact slug. If that slug does not exist, the CL
 or `--uncategorised` to filter recipes with empty tags or categories. Both
 filters may be combined. `mealie tags list` and `mealie categories list` list
 existing organisers. Use `--json` or `--ndjson` for structured results.
+Add `--empty` to `tags list` or `categories list` to show only unused organisers.
 Use `mealie tags create --name <name>` or `mealie categories create --name
 <name>` to create one; add `--dry-run` to preview it.
 

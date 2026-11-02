@@ -481,15 +481,25 @@ fn execute(
                 values: vec![value],
             })
         }
-        Command::Tags(cli::OrganizerCommand::List)
-        | Command::Categories(cli::OrganizerCommand::List) => {
+        Command::Tags(cli::OrganizerCommand::List { empty })
+        | Command::Categories(cli::OrganizerCommand::List { empty }) => {
             let path = if matches!(command, Command::Tags(_)) {
                 "/api/organizers/tags"
             } else {
                 "/api/organizers/categories"
             };
-            let values = client
-                .list_collection(path)?
+            let items = if empty {
+                client
+                    .get_organizer(&format!("{path}/empty"))?
+                    .as_array()
+                    .cloned()
+                    .ok_or_else(|| {
+                        AppError::new(ErrorCode::ApiError, "invalid empty organiser list response")
+                    })?
+            } else {
+                client.list_collection(path)?
+            };
+            let values = items
                 .into_iter()
                 .map(|mut value| {
                     if let Some(object) = value.as_object_mut() {
