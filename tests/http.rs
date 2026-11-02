@@ -32,6 +32,28 @@ fn lists_untagged_recipes_across_pages() {
 }
 
 #[test]
+fn null_organizer_lists_are_treated_as_missing() {
+    let mut server = Server::new();
+    let mock = server.mock("GET", "/api/recipes").match_query(Matcher::Any)
+        .with_body(r#"{"items":[{"id":"r1","slug":"soup","name":"Soup","tags":null,"recipeCategory":null}],"total_pages":1}"#).create();
+    let output = run_from(
+        [
+            "mealie",
+            "recipes",
+            "list",
+            "--untagged",
+            "--uncategorised",
+            "--json",
+        ],
+        env(&server.url()),
+    )
+    .unwrap();
+    let values: serde_json::Value = serde_json::from_str(&output).unwrap();
+    assert_eq!(values[0]["slug"], "soup");
+    mock.assert();
+}
+
+#[test]
 fn collection_lists_support_existing_pagination_variants() {
     for body in [
         r#"{"items":[{"id":"t1","name":"Quick","slug":"quick"}],"totalPages":1}"#,

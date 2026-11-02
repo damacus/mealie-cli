@@ -378,16 +378,14 @@ fn execute(
                 let mut values = Vec::new();
                 for recipe in client.list_recipes()? {
                     let missing = |field: &str| -> Result<bool, AppError> {
-                        recipe
-                            .get(field)
-                            .and_then(serde_json::Value::as_array)
-                            .map(Vec::is_empty)
-                            .ok_or_else(|| {
-                                AppError::new(
-                                    ErrorCode::ApiError,
-                                    format!("recipe list response missing {field}"),
-                                )
-                            })
+                        match recipe.get(field) {
+                            Some(serde_json::Value::Null) => Ok(true),
+                            Some(serde_json::Value::Array(items)) => Ok(items.is_empty()),
+                            _ => Err(AppError::new(
+                                ErrorCode::ApiError,
+                                format!("recipe list response missing or invalid {field}"),
+                            )),
+                        }
                     };
                     if (untagged && !missing("tags")?)
                         || (uncategorised && !missing("recipeCategory")?)
