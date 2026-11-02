@@ -54,6 +54,11 @@ pub enum Presentation {
     RecipeCreate {
         dry_run: bool,
     },
+    RecipeImport {
+        dry_run: bool,
+    },
+    RecipeExport,
+    ExportFormats,
     RecipeDelete {
         dry_run: bool,
     },
@@ -114,6 +119,29 @@ pub fn write_output(mode: OutputMode, output: CommandOutput) -> Result<String, A
 fn write_human(presentation: &Presentation, values: &[Value]) -> String {
     match presentation {
         Presentation::Status => write_status(&values[0]),
+        Presentation::RecipeImport { dry_run } => {
+            if *dry_run {
+                format!("Would import recipe: {}\n", values[0]["source"])
+            } else {
+                format!("Imported recipe: {}\n", text(&values[0], "slug"))
+            }
+        }
+        Presentation::RecipeExport => {
+            format!("Exported recipe to: {}\n", text(&values[0], "output"))
+        }
+        Presentation::ExportFormats => {
+            let mut lines = String::new();
+            if let Some(formats) = values[0]["formats"].as_object() {
+                for (kind, templates) in formats {
+                    if let Some(templates) = templates.as_array() {
+                        for template in templates.iter().filter_map(Value::as_str) {
+                            lines.push_str(&format!("{kind}: {template}\n"));
+                        }
+                    }
+                }
+            }
+            lines
+        }
         Presentation::RecipeCreate { dry_run } => {
             if *dry_run {
                 format!("Would create recipe: {}\n", text(&values[0], "name"))
@@ -446,13 +474,17 @@ fn write_quiet(values: &[Value]) -> String {
                         | "recipe_image_updated"
                         | "recipe_image_deleted"
                         | "recipe_created"
+                        | "recipe_imported"
                         | "recipe_deleted"
                 )
             )
         })
         .filter_map(|value| {
             value.get("id").or_else(|| {
-                if value.get("type").and_then(Value::as_str) == Some("recipe_created") {
+                if matches!(
+                    value.get("type").and_then(Value::as_str),
+                    Some("recipe_created" | "recipe_imported")
+                ) {
                     value.get("slug")
                 } else {
                     None

@@ -511,6 +511,142 @@ fn execute(
             })
         }
         Command::Recipes(recipes) => match recipes {
+            RecipesCommand::ImportUrl {
+                url,
+                include_tags,
+                include_categories,
+                dry_run,
+            } => {
+                let parsed = reqwest::Url::parse(&url).map_err(|_| {
+                    AppError::new(
+                        ErrorCode::InvalidArgs,
+                        "recipe URL must be an HTTP or HTTPS URL",
+                    )
+                })?;
+                if !matches!(parsed.scheme(), "http" | "https")
+                    || !parsed.username().is_empty()
+                    || parsed.password().is_some()
+                {
+                    return Err(AppError::new(
+                        ErrorCode::InvalidArgs,
+                        "recipe URL must use HTTP or HTTPS and contain no credentials",
+                    ));
+                }
+                let payload = serde_json::json!({"url":url,"includeTags":include_tags,"includeCategories":include_categories});
+                let slug = if dry_run {
+                    None
+                } else {
+                    Some(client.import_recipe("/api/recipes/create/url", &payload)?)
+                };
+                Ok(CommandOutput {
+                    presentation: Presentation::RecipeImport { dry_run },
+                    values: vec![record(
+                        if dry_run {
+                            "recipe_import_plan"
+                        } else {
+                            "recipe_imported"
+                        },
+                        [("slug", serde_json::json!(slug)), ("source", payload)],
+                    )],
+                })
+            }
+            RecipesCommand::ImportFile {
+                file,
+                include_tags,
+                include_categories,
+                dry_run,
+            } => {
+                let data = std::fs::read_to_string(&file).map_err(|error| {
+                    AppError::new(
+                        ErrorCode::InvalidArgs,
+                        format!("cannot read import file: {error}"),
+                    )
+                })?;
+                if data.trim().is_empty() {
+                    return Err(AppError::new(
+                        ErrorCode::InvalidArgs,
+                        "import file is empty",
+                    ));
+                }
+                let payload = serde_json::json!({"data":data,"includeTags":include_tags,"includeCategories":include_categories});
+                let slug = if dry_run {
+                    None
+                } else {
+                    Some(client.import_recipe("/api/recipes/create/html-or-json", &payload)?)
+                };
+                Ok(CommandOutput {
+                    presentation: Presentation::RecipeImport { dry_run },
+                    values: vec![record(
+                        if dry_run {
+                            "recipe_import_plan"
+                        } else {
+                            "recipe_imported"
+                        },
+                        [
+                            ("slug", serde_json::json!(slug)),
+                            (
+                                "source",
+                                serde_json::json!({"file":file,"includeTags":include_tags,"includeCategories":include_categories}),
+                            ),
+                        ],
+                    )],
+                })
+            }
+            RecipesCommand::ExportFormats => {
+                let formats = client.export_formats()?;
+                Ok(CommandOutput {
+                    presentation: Presentation::ExportFormats,
+                    values: vec![record("export_formats", [("formats", formats)])],
+                })
+            }
+            RecipesCommand::Export {
+                slug,
+                template,
+                output,
+            } => {
+                use std::io::Write;
+                validate_path_segment(&slug)?;
+                if template.trim().is_empty() {
+                    return Err(AppError::new(
+                        ErrorCode::InvalidArgs,
+                        "export template cannot be empty",
+                    ));
+                }
+                if output.exists() {
+                    return Err(AppError::new(
+                        ErrorCode::InvalidArgs,
+                        "export output already exists",
+                    ));
+                }
+                let bytes = client.export_recipe(&slug, &template)?;
+                let mut file = std::fs::OpenOptions::new()
+                    .write(true)
+                    .create_new(true)
+                    .open(&output)
+                    .map_err(|error| {
+                        AppError::new(
+                            ErrorCode::InvalidArgs,
+                            format!("cannot create export file: {error}"),
+                        )
+                    })?;
+                file.write_all(&bytes).map_err(|error| {
+                    AppError::new(
+                        ErrorCode::ApiError,
+                        format!("cannot write export file: {error}"),
+                    )
+                })?;
+                Ok(CommandOutput {
+                    presentation: Presentation::RecipeExport,
+                    values: vec![record(
+                        "recipe_exported",
+                        [
+                            ("slug", serde_json::json!(slug)),
+                            ("output", serde_json::json!(output)),
+                            ("template", serde_json::json!(template)),
+                        ],
+                    )],
+                })
+            }
             RecipesCommand::Patch {
                 slug,
                 file,

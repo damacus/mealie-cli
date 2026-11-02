@@ -92,6 +92,55 @@ impl<'a> PlanCreateRequest<'a> {
 }
 
 impl MealieClient {
+    pub fn import_recipe(&self, path: &str, payload: &Value) -> Result<String, AppError> {
+        let value = self
+            .http
+            .post(self.config.endpoint(path))
+            .bearer_auth(&self.config.token)
+            .json(payload)
+            .send()
+            .map_err(AppError::from)
+            .and_then(|response| checked_json(response, "import recipe"))?;
+        value
+            .as_str()
+            .map(str::to_owned)
+            .filter(|slug| !slug.is_empty())
+            .ok_or_else(|| {
+                AppError::new(ErrorCode::ApiError, "import recipe response missing slug")
+            })
+    }
+    pub fn export_formats(&self) -> Result<Value, AppError> {
+        self.http
+            .get(self.config.endpoint("/api/recipes/exports"))
+            .bearer_auth(&self.config.token)
+            .send()
+            .map_err(AppError::from)
+            .and_then(|response| checked_json(response, "get export formats"))
+    }
+    pub fn export_recipe(&self, slug: &str, template: &str) -> Result<Vec<u8>, AppError> {
+        let response = self
+            .http
+            .get(
+                self.config
+                    .endpoint(&format!("/api/recipes/{slug}/exports")),
+            )
+            .bearer_auth(&self.config.token)
+            .query(&[("template_name", template)])
+            .send()
+            .map_err(AppError::from)?;
+        if !response.status().is_success() {
+            return checked_json(response, "export recipe").and_then(|_| {
+                Err(AppError::new(
+                    ErrorCode::ApiError,
+                    "unexpected export response",
+                ))
+            });
+        }
+        response
+            .bytes()
+            .map(|bytes| bytes.to_vec())
+            .map_err(AppError::from)
+    }
     pub fn create_recipe(&self, name: &str) -> Result<String, AppError> {
         let value = self
             .http
