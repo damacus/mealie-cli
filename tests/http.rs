@@ -692,6 +692,111 @@ fn lists_export_formats() {
 }
 
 #[test]
+fn bulk_tag_verifies_each_recipe_after_the_api_request() {
+    let mut server = Server::new();
+    let tag = server
+        .mock("GET", "/api/organizers/tags/t1")
+        .with_body(r#"{"id":"t1","name":"Quick","slug":"quick"}"#)
+        .create();
+    let bulk = server.mock("POST", "/api/recipes/bulk-actions/tag")
+        .match_body(Matcher::Json(serde_json::json!({"recipes":["soup"],"tags":[{"id":"t1","name":"Quick","slug":"quick"}]})))
+        .with_body("null").create();
+    let recipe = server
+        .mock("GET", "/api/recipes/soup")
+        .with_body(r#"{"id":"r1","slug":"soup","name":"Soup","tags":[{"id":"t1","name":"Quick"}]}"#)
+        .create();
+    let output = run_from(
+        [
+            "mealie", "recipes", "bulk-tag", "--recipe", "soup", "--tag", "t1", "--json",
+        ],
+        env(&server.url()),
+    )
+    .unwrap();
+    let values: serde_json::Value = serde_json::from_str(&output).unwrap();
+    assert_eq!(values[0]["id"], "r1");
+    assert_eq!(values[0]["type"], "recipe_bulk_verified");
+    tag.assert();
+    bulk.assert();
+    recipe.assert();
+}
+
+#[test]
+fn bulk_tag_reports_missing_assignment_after_server_accepts_request() {
+    let mut server = Server::new();
+    let _tag = server
+        .mock("GET", "/api/organizers/tags/t1")
+        .with_body(r#"{"id":"t1","name":"Quick","slug":"quick"}"#)
+        .create();
+    let _bulk = server
+        .mock("POST", "/api/recipes/bulk-actions/tag")
+        .with_body("null")
+        .create();
+    let _recipe = server
+        .mock("GET", "/api/recipes/soup")
+        .with_body(r#"{"id":"r1","slug":"soup","name":"Soup","tags":[]}"#)
+        .create();
+    let error = run_from(
+        [
+            "mealie", "recipes", "bulk-tag", "--recipe", "soup", "--tag", "t1",
+        ],
+        env(&server.url()),
+    )
+    .unwrap_err();
+    assert_eq!(error.code(), ErrorCode::ApiError);
+    assert!(error.to_human().contains("soup"));
+}
+
+#[test]
+fn bulk_error_warns_that_some_recipes_may_have_changed() {
+    let mut server = Server::new();
+    let _tag = server
+        .mock("GET", "/api/organizers/tags/t1")
+        .with_body(r#"{"id":"t1","name":"Quick","slug":"quick"}"#)
+        .create();
+    let _bulk = server
+        .mock("POST", "/api/recipes/bulk-actions/tag")
+        .with_status(500)
+        .with_body(r#"{"detail":"failure"}"#)
+        .create();
+    let error = run_from(
+        [
+            "mealie", "recipes", "bulk-tag", "--recipe", "soup", "--tag", "t1",
+        ],
+        env(&server.url()),
+    )
+    .unwrap_err();
+    assert!(error.to_human().contains("partial"));
+}
+
+#[test]
+fn bulk_category_preview_reads_organizers_but_does_not_mutate() {
+    let mut server = Server::new();
+    let category = server
+        .mock("GET", "/api/organizers/categories/c1")
+        .with_body(r#"{"id":"c1","name":"Starter","slug":"starter"}"#)
+        .create();
+    let output = run_from(
+        [
+            "mealie",
+            "recipes",
+            "bulk-categorize",
+            "--recipe",
+            "soup",
+            "--category",
+            "c1",
+            "--dry-run",
+            "--json",
+        ],
+        env(&server.url()),
+    )
+    .unwrap();
+    let values: serde_json::Value = serde_json::from_str(&output).unwrap();
+    assert_eq!(values[0]["changes"]["categories"][0]["id"], "c1");
+    assert_eq!(values[0]["action"], "categorize");
+    category.assert();
+}
+
+#[test]
 fn merge_tags_sends_from_and_to_ids() {
     let mut server = Server::new();
     let mock = server

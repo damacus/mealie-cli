@@ -126,3 +126,9 @@ import-file --file <path>` for HTML or JSON. Add `--include-tags` and
 Run `mealie recipes export-formats` to see template names, then use
 `mealie recipes export <slug> --template <name> --output <path>` to write an
 export. Export refuses to overwrite an existing file.
+
+Add a tag to several recipes with `mealie recipes bulk-tag --recipe <slug>
+--recipe <slug> --tag <id>`. Use `bulk-categorize` and `--category <id>` for
+categories. Both accept repeated organiser flags and `--dry-run`. Mealie can
+partially apply a bulk update, so the CLI checks each recipe afterwards and
+reports an error if the requested assignments are missing.
