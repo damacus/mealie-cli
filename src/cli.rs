@@ -97,6 +97,21 @@ pub enum OrganizerCommand {
 
 #[derive(Debug, Subcommand)]
 pub enum RecipesCommand {
+    /// Add or remove a tag or category by ID
+    #[command(group(clap::ArgGroup::new("organizer_change").required(true).args(["add_tag", "remove_tag", "add_category", "remove_category"])))]
+    Organize {
+        slug: String,
+        #[arg(long)]
+        add_tag: Option<String>,
+        #[arg(long)]
+        remove_tag: Option<String>,
+        #[arg(long)]
+        add_category: Option<String>,
+        #[arg(long)]
+        remove_category: Option<String>,
+        #[arg(long)]
+        dry_run: bool,
+    },
     /// Update a recipe description
     Update {
         slug: String,

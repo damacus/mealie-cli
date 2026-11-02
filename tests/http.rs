@@ -333,6 +333,135 @@ fn renames_category_by_id() {
 }
 
 #[test]
+fn adds_a_tag_without_losing_existing_assignments() {
+    let mut server = Server::new();
+    let recipe = server.mock("GET", "/api/recipes/soup")
+        .with_body(r#"{"id":"r1","slug":"soup","name":"Soup","tags":[{"id":"old","name":"Old","slug":"old"}],"recipeCategory":[{"id":"cat","name":"Starter","slug":"starter"}]}"#).create();
+    let tag = server
+        .mock("GET", "/api/organizers/tags/new")
+        .with_body(r#"{"id":"new","name":"Quick","slug":"quick"}"#)
+        .create();
+    let patch = server.mock("PATCH", "/api/recipes/soup")
+        .match_body(Matcher::Json(serde_json::json!({"tags":[{"id":"old","name":"Old","slug":"old"},{"id":"new","name":"Quick","slug":"quick"}]})))
+        .with_body(r#"{"id":"r1","slug":"soup","name":"Soup"}"#).create();
+    run_from(
+        [
+            "mealie",
+            "recipes",
+            "organize",
+            "soup",
+            "--add-tag",
+            "new",
+            "--json",
+        ],
+        env(&server.url()),
+    )
+    .unwrap();
+    recipe.assert();
+    tag.assert();
+    patch.assert();
+}
+
+#[test]
+fn can_add_to_a_null_organizer_list() {
+    let mut server = Server::new();
+    let recipe = server
+        .mock("GET", "/api/recipes/soup")
+        .with_body(r#"{"id":"r1","slug":"soup","name":"Soup","tags":null}"#)
+        .create();
+    let tag = server
+        .mock("GET", "/api/organizers/tags/new")
+        .with_body(r#"{"id":"new","name":"Quick","slug":"quick"}"#)
+        .create();
+    let patch = server
+        .mock("PATCH", "/api/recipes/soup")
+        .match_body(Matcher::Json(
+            serde_json::json!({"tags":[{"id":"new","name":"Quick","slug":"quick"}]}),
+        ))
+        .with_body(r#"{"id":"r1","slug":"soup","name":"Soup"}"#)
+        .create();
+    run_from(
+        ["mealie", "recipes", "organize", "soup", "--add-tag", "new"],
+        env(&server.url()),
+    )
+    .unwrap();
+    recipe.assert();
+    tag.assert();
+    patch.assert();
+}
+
+#[test]
+fn organizer_removal_dry_run_preserves_other_tags() {
+    let mut server = Server::new();
+    let recipe = server.mock("GET", "/api/recipes/soup")
+        .with_body(r#"{"id":"r1","slug":"soup","name":"Soup","tags":[{"id":"old","name":"Old","slug":"old"},{"id":"keep","name":"Keep","slug":"keep"}]}"#).create();
+    let output = run_from(
+        [
+            "mealie",
+            "recipes",
+            "organize",
+            "soup",
+            "--remove-tag",
+            "old",
+            "--dry-run",
+            "--json",
+        ],
+        env(&server.url()),
+    )
+    .unwrap();
+    let values: serde_json::Value = serde_json::from_str(&output).unwrap();
+    assert_eq!(
+        values[0]["changes"]["tags"],
+        serde_json::json!([{"id":"keep","name":"Keep","slug":"keep"}])
+    );
+    recipe.assert();
+}
+
+#[test]
+fn category_addition_uses_category_field_and_preview_does_not_patch() {
+    let mut server = Server::new();
+    let _recipe = server
+        .mock("GET", "/api/recipes/soup")
+        .with_body(r#"{"id":"r1","slug":"soup","name":"Soup","recipeCategory":[]}"#)
+        .create();
+    let _category = server
+        .mock("GET", "/api/organizers/categories/c1")
+        .with_body(r#"{"id":"c1","name":"Starter","slug":"starter"}"#)
+        .create();
+    let output = run_from(
+        [
+            "mealie",
+            "recipes",
+            "organize",
+            "soup",
+            "--add-category",
+            "c1",
+            "--dry-run",
+            "--json",
+        ],
+        env(&server.url()),
+    )
+    .unwrap();
+    let values: serde_json::Value = serde_json::from_str(&output).unwrap();
+    assert_eq!(values[0]["changes"]["recipeCategory"][0]["id"], "c1");
+}
+
+#[test]
+fn adding_duplicate_tag_is_rejected_without_a_write() {
+    let mut server = Server::new();
+    let _recipe = server
+        .mock("GET", "/api/recipes/soup")
+        .with_body(r#"{"id":"r1","slug":"soup","name":"Soup","tags":[{"id":"t1","name":"Quick"}]}"#)
+        .create();
+    let error = run_from(
+        ["mealie", "recipes", "organize", "soup", "--add-tag", "t1"],
+        env(&server.url()),
+    )
+    .unwrap_err();
+    assert_eq!(error.code(), ErrorCode::InvalidArgs);
+}
+
+#[test]
 fn merge_tags_sends_from_and_to_ids() {
     let mut server = Server::new();
     let mock = server
