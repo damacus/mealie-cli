@@ -92,6 +92,40 @@ impl<'a> PlanCreateRequest<'a> {
 }
 
 impl MealieClient {
+    pub fn get_recipe_image(&self, id: &str, filename: &str) -> Result<Vec<u8>, AppError> {
+        let response = self
+            .http
+            .get(
+                self.config
+                    .endpoint(&format!("/api/media/recipes/{id}/images/{filename}")),
+            )
+            .bearer_auth(&self.config.token)
+            .send()
+            .map_err(AppError::from)?;
+        if !response.status().is_success() {
+            return checked_json(response, "get recipe image").and_then(|_| {
+                Err(AppError::new(
+                    ErrorCode::ApiError,
+                    "unexpected image response",
+                ))
+            });
+        }
+        let content_type = response
+            .headers()
+            .get(reqwest::header::CONTENT_TYPE)
+            .and_then(|value| value.to_str().ok())
+            .and_then(|value| value.split(';').next());
+        if !content_type.is_some_and(|value| value.trim().eq_ignore_ascii_case("image/webp")) {
+            return Err(AppError::new(
+                ErrorCode::ApiError,
+                "recipe image response is not WebP",
+            ));
+        }
+        response
+            .bytes()
+            .map(|bytes| bytes.to_vec())
+            .map_err(AppError::from)
+    }
     pub fn batch_update_recipes(&self, recipes: &Value, replace: bool) -> Result<Value, AppError> {
         let url = self.config.endpoint("/api/recipes");
         let request = if replace {

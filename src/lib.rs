@@ -1499,6 +1499,49 @@ fn execute(
                 })
             }
             RecipesCommand::Image(image) => match image {
+                cli::RecipeImageCommand::Get { slug, output, size } => {
+                    use std::io::Write;
+                    validate_path_segment(&slug)?;
+                    if output.exists() {
+                        return Err(AppError::new(
+                            ErrorCode::InvalidArgs,
+                            "image output already exists",
+                        ));
+                    }
+                    let recipe = client.get_recipe(&slug)?;
+                    validate_path_segment(&recipe.id).map_err(|_| {
+                        AppError::new(ErrorCode::ApiError, "invalid recipe ID in response")
+                    })?;
+                    let bytes = client.get_recipe_image(&recipe.id, size.filename())?;
+                    let mut file = std::fs::OpenOptions::new()
+                        .write(true)
+                        .create_new(true)
+                        .open(&output)
+                        .map_err(|error| {
+                            AppError::new(
+                                ErrorCode::InvalidArgs,
+                                format!("cannot create image file: {error}"),
+                            )
+                        })?;
+                    file.write_all(&bytes).map_err(|error| {
+                        AppError::new(
+                            ErrorCode::ApiError,
+                            format!("cannot write image file: {error}"),
+                        )
+                    })?;
+                    Ok(CommandOutput {
+                        presentation: Presentation::RecipeImageDownloaded,
+                        values: vec![record(
+                            "recipe_image_downloaded",
+                            [
+                                ("id", serde_json::json!(recipe.id)),
+                                ("slug", serde_json::json!(recipe.slug)),
+                                ("output", serde_json::json!(output)),
+                                ("size", serde_json::json!(size.filename())),
+                            ],
+                        )],
+                    })
+                }
                 cli::RecipeImageCommand::SetUrl { slug, url, dry_run } => {
                     validate_path_segment(&slug)?;
                     let parsed = reqwest::Url::parse(&url).map_err(|_| {
