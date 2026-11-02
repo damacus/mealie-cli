@@ -107,3 +107,8 @@ categories. Supply one change per invocation; `--dry-run` reads the current
 recipe and previews the resulting assignments without changing Mealie. The
 command reads and then replaces the selected assignment list, so avoid editing
 the same list concurrently in another client.
+
+Use `mealie recipes image set-url <slug> --url <image-url>` to replace an
+image from a direct URL, subject to the Mealie server's allowed-domain rules.
+Use `mealie recipes image delete <slug> --yes` to delete an image. Both accept
+`--dry-run`; the current image reference is included in structured recipe details.

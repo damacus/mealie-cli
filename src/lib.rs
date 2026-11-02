@@ -511,6 +511,93 @@ fn execute(
             })
         }
         Command::Recipes(recipes) => match recipes {
+            RecipesCommand::Image(image) => match image {
+                cli::RecipeImageCommand::SetUrl { slug, url, dry_run } => {
+                    validate_path_segment(&slug)?;
+                    let parsed = reqwest::Url::parse(&url).map_err(|_| {
+                        AppError::new(
+                            ErrorCode::InvalidArgs,
+                            "image URL must be an HTTP or HTTPS URL",
+                        )
+                    })?;
+                    if !matches!(parsed.scheme(), "http" | "https")
+                        || !parsed.username().is_empty()
+                        || parsed.password().is_some()
+                    {
+                        return Err(AppError::new(
+                            ErrorCode::InvalidArgs,
+                            "image URL must use HTTP or HTTPS and contain no credentials",
+                        ));
+                    }
+                    let recipe = client.get_recipe(&slug)?;
+                    let image = if dry_run {
+                        serde_json::json!(null)
+                    } else {
+                        client
+                            .set_image_url(&slug, &url)?
+                            .get("image")
+                            .cloned()
+                            .ok_or_else(|| {
+                                AppError::new(ErrorCode::ApiError, "image response missing image")
+                            })?
+                    };
+                    Ok(CommandOutput {
+                        presentation: Presentation::RecipeImage {
+                            action: if dry_run {
+                                "Would set image from"
+                            } else {
+                                "Updated image for"
+                            },
+                        },
+                        values: vec![record(
+                            if dry_run {
+                                "recipe_image_plan"
+                            } else {
+                                "recipe_image_updated"
+                            },
+                            [
+                                ("id", serde_json::json!(recipe.id)),
+                                ("slug", serde_json::json!(slug)),
+                                ("url", serde_json::json!(url)),
+                                ("image", image),
+                            ],
+                        )],
+                    })
+                }
+                cli::RecipeImageCommand::Delete { slug, yes, dry_run } => {
+                    validate_path_segment(&slug)?;
+                    if !yes && !dry_run {
+                        return Err(AppError::new(
+                            ErrorCode::InvalidArgs,
+                            "delete removes the image; pass --yes or --dry-run",
+                        ));
+                    }
+                    let recipe = client.get_recipe(&slug)?;
+                    if !dry_run {
+                        client.delete_image(&slug)?;
+                    }
+                    Ok(CommandOutput {
+                        presentation: Presentation::RecipeImage {
+                            action: if dry_run {
+                                "Would delete image for"
+                            } else {
+                                "Deleted image for"
+                            },
+                        },
+                        values: vec![record(
+                            if dry_run {
+                                "recipe_image_delete_plan"
+                            } else {
+                                "recipe_image_deleted"
+                            },
+                            [
+                                ("id", serde_json::json!(recipe.id)),
+                                ("slug", serde_json::json!(slug)),
+                            ],
+                        )],
+                    })
+                }
+            },
             RecipesCommand::Organize {
                 slug,
                 add_tag,

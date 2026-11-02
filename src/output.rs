@@ -48,6 +48,9 @@ pub enum Presentation {
     RecipeOrganize {
         dry_run: bool,
     },
+    RecipeImage {
+        action: &'static str,
+    },
     RecipeSearch {
         query: String,
     },
@@ -105,6 +108,14 @@ pub fn write_output(mode: OutputMode, output: CommandOutput) -> Result<String, A
 fn write_human(presentation: &Presentation, values: &[Value]) -> String {
     match presentation {
         Presentation::Status => write_status(&values[0]),
+        Presentation::RecipeImage { action } => format!(
+            "{action}: {}\n",
+            if *action == "Would set image from" {
+                text(&values[0], "url")
+            } else {
+                text(&values[0], "slug")
+            }
+        ),
         Presentation::RecipeOrganize { dry_run } => {
             if *dry_run {
                 format!(
@@ -409,6 +420,8 @@ fn write_quiet(values: &[Value]) -> String {
                         | "organizer_merged"
                         | "organizer_deleted"
                         | "recipe_updated"
+                        | "recipe_image_updated"
+                        | "recipe_image_deleted"
                 )
             )
         })
