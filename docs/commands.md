@@ -144,3 +144,10 @@ fields `public`, `showNutrition`, `showAssets`, `landscapeView` and
 `disableComments`. Mealie preserves each recipe's `locked` setting. Without
 `--dry-run`, the CLI submits the replacement and verifies each recipe; an
 error may mean some recipes were already changed.
+
+Request an archive with `mealie recipes bulk-export start --recipe <slug>`
+(repeat `--recipe` for more recipes). The server accepts the request without
+returning an export ID; use `mealie recipes bulk-export list` to find available
+exports, then `bulk-export download --id <id> --output <path>` to save one.
+Downloads refuse to overwrite existing files. `bulk-export purge --yes` removes
+all group exports; `--dry-run` previews the purge or the start request.

@@ -952,6 +952,140 @@ fn bulk_settings_reports_partial_application() {
 }
 
 #[test]
+fn bulk_export_start_reports_accepted_not_completed() {
+    let mut server = Server::new();
+    let mock = server
+        .mock("POST", "/api/recipes/bulk-actions/export")
+        .match_body(Matcher::Json(
+            serde_json::json!({"recipes":["soup"],"exportType":"json"}),
+        ))
+        .with_status(202)
+        .with_body("null")
+        .create();
+    let output = run_from(
+        [
+            "mealie",
+            "recipes",
+            "bulk-export",
+            "start",
+            "--recipe",
+            "soup",
+            "--json",
+        ],
+        env(&server.url()),
+    )
+    .unwrap();
+    let values: serde_json::Value = serde_json::from_str(&output).unwrap();
+    assert_eq!(values[0]["type"], "recipe_bulk_export_requested");
+    mock.assert();
+}
+
+#[test]
+fn bulk_export_download_keeps_file_token_private() {
+    let mut server = Server::new();
+    let token = server
+        .mock("GET", "/api/recipes/bulk-actions/export/e1/download")
+        .with_body(r#"{"fileToken":"secret-file-token"}"#)
+        .create();
+    let download = server
+        .mock("GET", "/api/utils/download")
+        .match_query(Matcher::UrlEncoded(
+            "token".into(),
+            "secret-file-token".into(),
+        ))
+        .with_body("ARCHIVE")
+        .create();
+    let path = std::env::temp_dir().join(format!("mealie-bulk-export-{}.zip", std::process::id()));
+    let output = run_from(
+        [
+            "mealie",
+            "recipes",
+            "bulk-export",
+            "download",
+            "--id",
+            "e1",
+            "--output",
+            path.to_str().unwrap(),
+            "--json",
+        ],
+        env(&server.url()),
+    )
+    .unwrap();
+    assert!(!output.contains("secret-file-token"));
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), "ARCHIVE");
+    std::fs::remove_file(path).unwrap();
+    token.assert();
+    download.assert();
+}
+
+#[test]
+fn bulk_export_purge_requires_explicit_confirmation() {
+    let mut server = Server::new();
+    let error = run_from(
+        ["mealie", "recipes", "bulk-export", "purge"],
+        env(&server.url()),
+    )
+    .unwrap_err();
+    assert_eq!(error.code(), ErrorCode::InvalidArgs);
+    let mock = server
+        .mock("DELETE", "/api/recipes/bulk-actions/export/purge")
+        .with_body(r#"{"message":"removed"}"#)
+        .create();
+    let output = run_from(
+        ["mealie", "recipes", "bulk-export", "purge", "--yes"],
+        env(&server.url()),
+    )
+    .unwrap();
+    assert!(output.contains("purged"));
+    mock.assert();
+}
+
+#[test]
+fn bulk_export_download_error_does_not_expose_file_token() {
+    let mut server = Server::new();
+    let _token = server
+        .mock("GET", "/api/recipes/bulk-actions/export/e1/download")
+        .with_body(r#"{"fileToken":"secret-file-token"}"#)
+        .create();
+    let _download = server
+        .mock("GET", "/api/utils/download")
+        .match_query(Matcher::Any)
+        .with_status(500)
+        .with_body("secret-file-token")
+        .create();
+    let path = std::env::temp_dir().join(format!("mealie-bulk-error-{}.zip", std::process::id()));
+    let error = run_from(
+        [
+            "mealie",
+            "recipes",
+            "bulk-export",
+            "download",
+            "--id",
+            "e1",
+            "--output",
+            path.to_str().unwrap(),
+        ],
+        env(&server.url()),
+    )
+    .unwrap_err();
+    assert!(!error.to_human().contains("secret-file-token"));
+    assert!(!path.exists());
+}
+
+#[test]
+fn bulk_export_list_omits_internal_server_paths() {
+    let mut server = Server::new();
+    let _mock = server.mock("GET", "/api/recipes/bulk-actions/export").with_body(r#"[{"id":"e1","name":"Export","filename":"recipes.zip","expires":"tomorrow","path":"/private/server/path"}]"#).create();
+    let output = run_from(
+        ["mealie", "recipes", "bulk-export", "list", "--json"],
+        env(&server.url()),
+    )
+    .unwrap();
+    assert!(!output.contains("/private/server/path"));
+    assert!(output.contains("recipes.zip"));
+}
+
+#[test]
 fn merge_tags_sends_from_and_to_ids() {
     let mut server = Server::new();
     let mock = server

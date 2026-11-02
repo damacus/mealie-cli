@@ -61,6 +61,13 @@ pub enum Presentation {
     ExportFormats,
     BulkPlan,
     BulkDeleted,
+    BulkExportStart {
+        dry_run: bool,
+    },
+    BulkExportList,
+    BulkExportPurge {
+        dry_run: bool,
+    },
     RecipeDelete {
         dry_run: bool,
     },
@@ -121,6 +128,41 @@ pub fn write_output(mode: OutputMode, output: CommandOutput) -> Result<String, A
 fn write_human(presentation: &Presentation, values: &[Value]) -> String {
     match presentation {
         Presentation::Status => write_status(&values[0]),
+        Presentation::BulkExportStart { dry_run } => {
+            if *dry_run {
+                format!("Would request export: {}\n", values[0]["request"])
+            } else {
+                "Bulk export requested; use recipes bulk-export list to check availability.\n"
+                    .to_string()
+            }
+        }
+        Presentation::BulkExportList => {
+            if values.is_empty() {
+                "No recipe exports found.\n".to_string()
+            } else {
+                table(
+                    &["NAME", "FILENAME", "ID", "EXPIRES"],
+                    values
+                        .iter()
+                        .map(|value| {
+                            vec![
+                                text(value, "name"),
+                                text(value, "filename"),
+                                text(value, "id"),
+                                text(value, "expires"),
+                            ]
+                        })
+                        .collect(),
+                )
+            }
+        }
+        Presentation::BulkExportPurge { dry_run } => {
+            if *dry_run {
+                "Would purge all group recipe exports.\n".to_string()
+            } else {
+                "All group recipe exports purged.\n".to_string()
+            }
+        }
         Presentation::BulkDeleted => values
             .iter()
             .map(|value| format!("Deleted recipe: {}\n", text(value, "slug")))
