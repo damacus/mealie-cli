@@ -132,3 +132,8 @@ Add a tag to several recipes with `mealie recipes bulk-tag --recipe <slug>
 categories. Both accept repeated organiser flags and `--dry-run`. Mealie can
 partially apply a bulk update, so the CLI checks each recipe afterwards and
 reports an error if the requested assignments are missing.
+
+`mealie recipes bulk-delete --recipe <slug> --recipe <slug> --dry-run`
+previews a deletion. Replace `--dry-run` with `--yes` to execute it. The CLI
+checks that each recipe is no longer accessible afterwards and reports a
+partial-change warning if deletion or verification fails.

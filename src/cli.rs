@@ -97,6 +97,15 @@ pub enum OrganizerCommand {
 
 #[derive(Debug, Subcommand)]
 pub enum RecipesCommand {
+    /// Delete several recipes
+    BulkDelete {
+        #[arg(long, required = true)]
+        recipe: Vec<String>,
+        #[arg(long, conflicts_with = "dry_run")]
+        yes: bool,
+        #[arg(long)]
+        dry_run: bool,
+    },
     /// Add tags to several recipes
     BulkTag {
         #[arg(long, required = true)]

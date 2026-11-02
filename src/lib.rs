@@ -511,6 +511,80 @@ fn execute(
             })
         }
         Command::Recipes(recipes) => match recipes {
+            RecipesCommand::BulkDelete {
+                recipe,
+                yes,
+                dry_run,
+            } => {
+                if !yes && !dry_run {
+                    return Err(AppError::new(
+                        ErrorCode::InvalidArgs,
+                        "bulk delete removes recipes; pass --yes or --dry-run",
+                    ));
+                }
+                for slug in &recipe {
+                    validate_path_segment(slug)?;
+                }
+                if recipe
+                    .iter()
+                    .collect::<std::collections::HashSet<_>>()
+                    .len()
+                    != recipe.len()
+                {
+                    return Err(AppError::new(
+                        ErrorCode::InvalidArgs,
+                        "duplicate recipes are not allowed",
+                    ));
+                }
+                let payload = serde_json::json!({"recipes":recipe});
+                if dry_run {
+                    return Ok(CommandOutput {
+                        presentation: Presentation::BulkPlan,
+                        values: vec![record(
+                            "recipe_bulk_plan",
+                            [
+                                ("action", serde_json::json!("delete")),
+                                ("changes", payload),
+                            ],
+                        )],
+                    });
+                }
+                client.bulk_action("delete", &payload).map_err(|error| {
+                    AppError::new(
+                        error.code(),
+                        format!("bulk delete failed; changes may be partial: {error}"),
+                    )
+                })?;
+                let mut values = Vec::new();
+                for slug in &recipe {
+                    match client.get_recipe(slug) {
+                        Err(error) if error.code() == ErrorCode::NotFound => values.push(record(
+                            "recipe_bulk_deleted",
+                            [("slug", serde_json::json!(slug))],
+                        )),
+                        Ok(_) => {
+                            return Err(AppError::new(
+                                ErrorCode::ApiError,
+                                format!(
+                                    "bulk delete was sent but {slug} still exists; changes may be partial"
+                                ),
+                            ));
+                        }
+                        Err(error) => {
+                            return Err(AppError::new(
+                                error.code(),
+                                format!(
+                                    "bulk delete was sent but verification failed for {slug}; changes may be partial: {error}"
+                                ),
+                            ));
+                        }
+                    }
+                }
+                Ok(CommandOutput {
+                    presentation: Presentation::BulkDeleted,
+                    values,
+                })
+            }
             RecipesCommand::BulkTag {
                 recipe,
                 tag,
