@@ -595,6 +595,112 @@ fn recipe_image_preview_is_read_only_and_rejects_credential_urls() {
 }
 
 #[test]
+fn recipe_image_get_downloads_without_overwriting() {
+    let mut server = Server::new();
+    let recipe = server
+        .mock("GET", "/api/recipes/soup")
+        .with_body(r#"{"id":"r1","slug":"soup","name":"Soup"}"#)
+        .expect(1)
+        .create();
+    let image = server
+        .mock("GET", "/api/media/recipes/r1/images/original.webp")
+        .match_header("authorization", "Bearer secret-token")
+        .with_header("content-type", "image/webp")
+        .with_body("image-bytes")
+        .expect(1)
+        .create();
+    let path = std::env::temp_dir().join(format!("mealie-image-{}.webp", std::process::id()));
+    std::fs::write(&path, "existing").unwrap();
+    let name = path.to_str().unwrap();
+    let error = run_from(
+        [
+            "mealie", "recipes", "image", "get", "soup", "--output", name,
+        ],
+        env(&server.url()),
+    )
+    .unwrap_err();
+    assert_eq!(error.code(), ErrorCode::InvalidArgs);
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), "existing");
+    std::fs::remove_file(&path).unwrap();
+    let output = run_from(
+        [
+            "mealie", "recipes", "image", "get", "soup", "--output", name, "--json",
+        ],
+        env(&server.url()),
+    )
+    .unwrap();
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), "image-bytes");
+    std::fs::remove_file(path).unwrap();
+    let values: serde_json::Value = serde_json::from_str(&output).unwrap();
+    assert_eq!(values[0]["slug"], "soup");
+    recipe.assert();
+    image.assert();
+}
+
+#[test]
+fn recipe_image_get_does_not_save_an_html_error_as_an_image() {
+    let mut server = Server::new();
+    let _recipe = server
+        .mock("GET", "/api/recipes/soup")
+        .with_body(r#"{"id":"r1","slug":"soup","name":"Soup"}"#)
+        .create();
+    let _image = server
+        .mock("GET", "/api/media/recipes/r1/images/original.webp")
+        .with_header("content-type", "text/html")
+        .with_body("login")
+        .create();
+    let path =
+        std::env::temp_dir().join(format!("mealie-invalid-image-{}.webp", std::process::id()));
+    let error = run_from(
+        [
+            "mealie",
+            "recipes",
+            "image",
+            "get",
+            "soup",
+            "--output",
+            path.to_str().unwrap(),
+        ],
+        env(&server.url()),
+    )
+    .unwrap_err();
+    assert_eq!(error.code(), ErrorCode::ApiError);
+    assert!(!path.exists());
+}
+
+#[test]
+fn recipe_image_get_supports_the_small_size() {
+    let mut server = Server::new();
+    let _recipe = server
+        .mock("GET", "/api/recipes/soup")
+        .with_body(r#"{"id":"r1","slug":"soup","name":"Soup"}"#)
+        .create();
+    let image = server
+        .mock("GET", "/api/media/recipes/r1/images/min-original.webp")
+        .with_header("content-type", "image/webp; charset=binary")
+        .with_body("image-bytes")
+        .create();
+    let path = std::env::temp_dir().join(format!("mealie-small-image-{}.webp", std::process::id()));
+    run_from(
+        [
+            "mealie",
+            "recipes",
+            "image",
+            "get",
+            "soup",
+            "--output",
+            path.to_str().unwrap(),
+            "--size",
+            "small",
+        ],
+        env(&server.url()),
+    )
+    .unwrap();
+    std::fs::remove_file(path).unwrap();
+    image.assert();
+}
+
+#[test]
 fn creates_blank_recipe_and_returns_its_slug() {
     let mut server = Server::new();
     let mock = server

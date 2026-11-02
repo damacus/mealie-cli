@@ -344,6 +344,14 @@ pub enum BulkExportCommand {
 
 #[derive(Debug, Subcommand)]
 pub enum RecipeImageCommand {
+    /// Download a recipe image without overwriting an existing file
+    Get {
+        slug: String,
+        #[arg(long)]
+        output: std::path::PathBuf,
+        #[arg(long, value_enum, default_value_t = RecipeImageSize::Original)]
+        size: RecipeImageSize,
+    },
     /// Set an image from a direct URL
     SetUrl {
         slug: String,
@@ -360,6 +368,23 @@ pub enum RecipeImageCommand {
         #[arg(long)]
         dry_run: bool,
     },
+}
+
+#[derive(Debug, Clone, Copy, clap::ValueEnum)]
+pub enum RecipeImageSize {
+    Original,
+    Small,
+    Tiny,
+}
+
+impl RecipeImageSize {
+    pub fn filename(self) -> &'static str {
+        match self {
+            Self::Original => "original.webp",
+            Self::Small => "min-original.webp",
+            Self::Tiny => "tiny-original.webp",
+        }
+    }
 }
 
 #[derive(Debug, Subcommand)]

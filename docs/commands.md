@@ -113,6 +113,9 @@ Use `mealie recipes image set-url <slug> --url <image-url>` to replace an
 image from a direct URL, subject to the Mealie server's allowed-domain rules.
 Use `mealie recipes image delete <slug> --yes` to delete an image. Both accept
 `--dry-run`; the current image reference is included in structured recipe details.
+Use `mealie recipes image get <slug> --output <path>` to download the current
+WebP image for inspection. The output must not already exist. Add `--size small`
+or `--size tiny` to select a smaller image.
 
 Use `mealie recipes create --name <name>` to create an empty recipe. Use
 `mealie recipes patch <slug> --file <path>` to update recipe fields from a

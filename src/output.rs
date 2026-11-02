@@ -51,6 +51,7 @@ pub enum Presentation {
     RecipeImage {
         action: &'static str,
     },
+    RecipeImageDownloaded,
     RecipeCreate {
         dry_run: bool,
     },
@@ -142,6 +143,10 @@ pub fn write_output(mode: OutputMode, output: CommandOutput) -> Result<String, A
 fn write_human(presentation: &Presentation, values: &[Value]) -> String {
     match presentation {
         Presentation::Status => write_status(&values[0]),
+        Presentation::RecipeImageDownloaded => format!(
+            "Downloaded recipe image to: {}\n",
+            text(&values[0], "output")
+        ),
         Presentation::RecipeReplace { dry_run } => {
             if *dry_run {
                 format!(
