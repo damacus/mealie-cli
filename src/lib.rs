@@ -629,9 +629,28 @@ fn execute(
                             "purge removes all group exports; pass --yes or --dry-run",
                         ));
                     }
-                    if !dry_run {
-                        client.purge_bulk_exports()?;
-                    }
+                    let message = if dry_run {
+                        None
+                    } else {
+                        let response = client.purge_bulk_exports()?;
+                        if response
+                            .as_ref()
+                            .and_then(|value| value.get("error"))
+                            .and_then(serde_json::Value::as_bool)
+                            == Some(true)
+                        {
+                            return Err(AppError::new(
+                                ErrorCode::ApiError,
+                                "Mealie reported that the export purge failed",
+                            ));
+                        }
+                        response.and_then(|value| {
+                            value
+                                .get("message")
+                                .and_then(serde_json::Value::as_str)
+                                .map(str::to_owned)
+                        })
+                    };
                     Ok(CommandOutput {
                         presentation: Presentation::BulkExportPurge { dry_run },
                         values: vec![record(
@@ -640,7 +659,7 @@ fn execute(
                             } else {
                                 "recipe_bulk_export_purged"
                             },
-                            [],
+                            [("message", serde_json::json!(message))],
                         )],
                     })
                 }

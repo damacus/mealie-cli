@@ -160,7 +160,11 @@ fn write_human(presentation: &Presentation, values: &[Value]) -> String {
             if *dry_run {
                 "Would purge all group recipe exports.\n".to_string()
             } else {
-                "All group recipe exports purged.\n".to_string()
+                format!(
+                    "Export purge request completed: {}\nCheck the export list for remaining entries.\n",
+                    non_empty_text(&values[0], "message")
+                        .unwrap_or_else(|| "no details returned".to_string())
+                )
             }
         }
         Presentation::BulkDeleted => values
