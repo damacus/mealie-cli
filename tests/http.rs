@@ -1224,6 +1224,48 @@ fn bulk_export_download_error_does_not_expose_file_token() {
 }
 
 #[test]
+fn bulk_export_download_never_follows_redirect_with_file_token() {
+    let mut server = Server::new();
+    let mut destination = Server::new();
+    let _token = server
+        .mock("GET", "/api/recipes/bulk-actions/export/e1/download")
+        .with_body(r#"{"fileToken":"secret-file-token"}"#)
+        .create();
+    let _redirect = server
+        .mock("GET", "/api/utils/download")
+        .match_query(Matcher::Any)
+        .with_status(302)
+        .with_header("location", &format!("{}/capture", destination.url()))
+        .create();
+    let receiver = destination
+        .mock("GET", "/capture")
+        .match_query(Matcher::Any)
+        .expect(0)
+        .create();
+    let path =
+        std::env::temp_dir().join(format!("mealie-redirect-test-{}.zip", std::process::id()));
+    let result = run_from(
+        [
+            "mealie",
+            "recipes",
+            "bulk-export",
+            "download",
+            "--id",
+            "e1",
+            "--output",
+            path.to_str().unwrap(),
+        ],
+        env(&server.url()),
+    );
+    if path.exists() {
+        std::fs::remove_file(path).unwrap();
+    }
+    assert!(result.is_err());
+    assert!(!result.unwrap_err().to_human().contains("secret-file-token"));
+    receiver.assert();
+}
+
+#[test]
 fn bulk_export_list_omits_internal_server_paths() {
     let mut server = Server::new();
     let _mock = server.mock("GET", "/api/recipes/bulk-actions/export").with_body(r#"[{"id":"e1","name":"Export","filename":"recipes.zip","expires":"tomorrow","path":"/private/server/path"}]"#).create();
