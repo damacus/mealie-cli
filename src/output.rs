@@ -37,6 +37,13 @@ pub enum Presentation {
         kind: &'static str,
         dry_run: bool,
     },
+    OrganizerRename {
+        kind: &'static str,
+        dry_run: bool,
+    },
+    OrganizerChange {
+        action: &'static str,
+    },
     RecipeUpdate,
     RecipeSearch {
         query: String,
@@ -95,6 +102,15 @@ pub fn write_output(mode: OutputMode, output: CommandOutput) -> Result<String, A
 fn write_human(presentation: &Presentation, values: &[Value]) -> String {
     match presentation {
         Presentation::Status => write_status(&values[0]),
+        Presentation::OrganizerChange { action } => {
+            format!("{action} organiser: {}\n", text(&values[0], "id"))
+        }
+        Presentation::OrganizerRename { kind, dry_run } => format!(
+            "{} {kind} {} to: {}\n",
+            if *dry_run { "Would rename" } else { "Renamed" },
+            text(&values[0], "id"),
+            text(&values[0], "name")
+        ),
         Presentation::OrganizerCreate { kind, dry_run } => format!(
             "{} {kind}: {}\n",
             if *dry_run { "Would create" } else { "Created" },
@@ -371,7 +387,15 @@ fn write_quiet(values: &[Value]) -> String {
         .filter(|value| {
             matches!(
                 value.get("type").and_then(Value::as_str),
-                Some("plan_created" | "plan_deleted" | "organizer_created" | "recipe_updated")
+                Some(
+                    "plan_created"
+                        | "plan_deleted"
+                        | "organizer_created"
+                        | "organizer_updated"
+                        | "organizer_merged"
+                        | "organizer_deleted"
+                        | "recipe_updated"
+                )
             )
         })
         .filter_map(|value| value.get("id"))

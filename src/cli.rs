@@ -49,6 +49,43 @@ pub enum Command {
 pub enum OrganizerCommand {
     /// List all organisers
     List,
+    /// Get an organiser by ID or slug
+    #[command(group(clap::ArgGroup::new("organizer_identifier").required(true).args(["id", "slug"])))]
+    Get {
+        #[arg(long)]
+        id: Option<String>,
+        #[arg(long)]
+        slug: Option<String>,
+    },
+    /// Rename an organiser by ID
+    Rename {
+        #[arg(long)]
+        id: String,
+        #[arg(long)]
+        name: String,
+        #[arg(long)]
+        dry_run: bool,
+    },
+    /// Merge an organiser into another, removing the source
+    Merge {
+        #[arg(long)]
+        from: String,
+        #[arg(long)]
+        to: String,
+        #[arg(long, conflicts_with = "dry_run")]
+        yes: bool,
+        #[arg(long)]
+        dry_run: bool,
+    },
+    /// Delete an organiser
+    Delete {
+        #[arg(long)]
+        id: String,
+        #[arg(long, conflicts_with = "dry_run")]
+        yes: bool,
+        #[arg(long)]
+        dry_run: bool,
+    },
     /// Create an organiser
     Create {
         #[arg(long)]

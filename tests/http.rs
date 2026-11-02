@@ -289,6 +289,143 @@ fn lists_tags() {
 }
 
 #[test]
+fn gets_tag_by_slug_with_recipes() {
+    let mut server = Server::new();
+    let mock = server
+        .mock("GET", "/api/organizers/tags/slug/quick")
+        .with_body(r#"{"id":"t1","name":"Quick","slug":"quick","recipes":[{"name":"Soup"}]}"#)
+        .create();
+    let output = run_from(
+        ["mealie", "tags", "get", "--slug", "quick", "--json"],
+        env(&server.url()),
+    )
+    .unwrap();
+    let values: serde_json::Value = serde_json::from_str(&output).unwrap();
+    assert_eq!(values[0]["recipes"][0]["name"], "Soup");
+    mock.assert();
+}
+
+#[test]
+fn renames_category_by_id() {
+    let mut server = Server::new();
+    let mock = server
+        .mock("PUT", "/api/organizers/categories/c1")
+        .match_body(Matcher::Json(serde_json::json!({"name":"Pudding"})))
+        .with_body(r#"{"id":"c1","name":"Pudding","slug":"pudding"}"#)
+        .create();
+    let output = run_from(
+        [
+            "mealie",
+            "categories",
+            "rename",
+            "--id",
+            "c1",
+            "--name",
+            "Pudding",
+            "--json",
+        ],
+        env(&server.url()),
+    )
+    .unwrap();
+    let values: serde_json::Value = serde_json::from_str(&output).unwrap();
+    assert_eq!(values[0]["name"], "Pudding");
+    mock.assert();
+}
+
+#[test]
+fn merge_tags_sends_from_and_to_ids() {
+    let mut server = Server::new();
+    let mock = server
+        .mock("POST", "/api/organizers/tags/merge")
+        .match_body(Matcher::Json(serde_json::json!({"fromId":"a","toId":"b"})))
+        .with_body(r#"{"id":"b","name":"Target","slug":"target"}"#)
+        .create();
+    let output = run_from(
+        [
+            "mealie", "tags", "merge", "--from", "a", "--to", "b", "--yes", "--json",
+        ],
+        env(&server.url()),
+    )
+    .unwrap();
+    let values: serde_json::Value = serde_json::from_str(&output).unwrap();
+    assert_eq!(values[0]["id"], "b");
+    mock.assert();
+}
+
+#[test]
+fn deleting_category_requires_confirmation_and_accepts_empty_response() {
+    let mut server = Server::new();
+    let error = run_from(
+        ["mealie", "categories", "delete", "--id", "c1"],
+        env(&server.url()),
+    )
+    .unwrap_err();
+    assert_eq!(error.code(), ErrorCode::InvalidArgs);
+    let mock = server
+        .mock("DELETE", "/api/organizers/categories/c1")
+        .with_status(204)
+        .create();
+    let output = run_from(
+        [
+            "mealie",
+            "categories",
+            "delete",
+            "--id",
+            "c1",
+            "--yes",
+            "--quiet",
+        ],
+        env(&server.url()),
+    )
+    .unwrap();
+    assert_eq!(output, "c1\n");
+    mock.assert();
+}
+
+#[test]
+fn merge_dry_run_is_non_mutating_and_requires_distinct_ids() {
+    let server = Server::new();
+    let output = run_from(
+        [
+            "mealie",
+            "tags",
+            "merge",
+            "--from",
+            "a",
+            "--to",
+            "b",
+            "--dry-run",
+            "--json",
+        ],
+        env(&server.url()),
+    )
+    .unwrap();
+    let values: serde_json::Value = serde_json::from_str(&output).unwrap();
+    assert_eq!(values[0]["type"], "organizer_merge_plan");
+    let error = run_from(
+        [
+            "mealie", "tags", "merge", "--from", "a", "--to", "a", "--yes",
+        ],
+        env(&server.url()),
+    )
+    .unwrap_err();
+    assert_eq!(error.code(), ErrorCode::InvalidArgs);
+}
+
+#[test]
+fn organizer_identifiers_cannot_escape_the_endpoint() {
+    let server = Server::new();
+    for id in ["../other", "id?x=1", "%2e%2e"] {
+        let error = run_from(
+            ["mealie", "tags", "rename", "--id", id, "--name", "Quick"],
+            env(&server.url()),
+        )
+        .unwrap_err();
+        assert_eq!(error.code(), ErrorCode::InvalidArgs);
+    }
+}
+
+#[test]
 fn creates_category_with_name() {
     let mut server = Server::new();
     let mock = server
