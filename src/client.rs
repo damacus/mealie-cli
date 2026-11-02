@@ -299,6 +299,27 @@ impl MealieClient {
                 AppError::new(ErrorCode::ApiError, "import recipe response missing slug")
             })
     }
+    pub fn import_multipart(
+        &self,
+        path: &str,
+        form: reqwest::blocking::multipart::Form,
+    ) -> Result<String, AppError> {
+        let value = self
+            .http
+            .post(self.config.endpoint(path))
+            .bearer_auth(&self.config.token)
+            .multipart(form)
+            .send()
+            .map_err(AppError::from)
+            .and_then(|response| checked_json(response, "import recipe"))?;
+        value
+            .as_str()
+            .filter(|slug| !slug.is_empty())
+            .map(str::to_owned)
+            .ok_or_else(|| {
+                AppError::new(ErrorCode::ApiError, "import recipe response missing slug")
+            })
+    }
     pub fn export_formats(&self) -> Result<Value, AppError> {
         self.http
             .get(self.config.endpoint("/api/recipes/exports"))
@@ -365,6 +386,19 @@ impl MealieClient {
             .send()
             .map_err(AppError::from)
             .and_then(|response| checked_json(response, "set recipe image"))
+    }
+    pub fn upload_image(
+        &self,
+        slug: &str,
+        form: reqwest::blocking::multipart::Form,
+    ) -> Result<Value, AppError> {
+        self.http
+            .put(self.config.endpoint(&format!("/api/recipes/{slug}/image")))
+            .bearer_auth(&self.config.token)
+            .multipart(form)
+            .send()
+            .map_err(AppError::from)
+            .and_then(|response| checked_json(response, "upload recipe image"))
     }
     pub fn delete_image(&self, slug: &str) -> Result<(), AppError> {
         self.http

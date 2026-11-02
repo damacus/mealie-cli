@@ -111,7 +111,8 @@ the same list concurrently in another client.
 
 Use `mealie recipes image set-url <slug> --url <image-url>` to replace an
 image from a direct URL, subject to the Mealie server's allowed-domain rules.
-Use `mealie recipes image delete <slug> --yes` to delete an image. Both accept
+Use `mealie recipes image upload <slug> --file <path>` to upload a local image.
+Use `mealie recipes image delete <slug> --yes` to delete an image. All three accept
 `--dry-run`; the current image reference is included in structured recipe details.
 Use `mealie recipes image get <slug> --output <path>` to download the current
 WebP image for inspection. The output must not already exist. Add `--size small`
@@ -136,6 +137,11 @@ can leave earlier recipes changed.
 Import recipes with `mealie recipes import-url --url <url>` or `mealie recipes
 import-file --file <path>` for HTML or JSON. Add `--include-tags` and
 `--include-categories` to import organisers, and `--dry-run` to preview.
+Import a Mealie archive with `mealie recipes import-zip --file <path>`. If the
+server has AI configured, `mealie recipes import-ai --content <text>` accepts
+text, `--url <url>`, and repeated `--image <path>` inputs. Optional
+`--translate-language <language>` and `--create-new-organizers` are passed to
+Mealie. Both commands accept `--dry-run`.
 Run `mealie recipes export-formats` to see template names, then use
 `mealie recipes export <slug> --template <name> --output <path>` to write an
 export. Export refuses to overwrite an existing file.

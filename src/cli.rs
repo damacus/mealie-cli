@@ -233,6 +233,28 @@ pub enum RecipesCommand {
         #[arg(long)]
         dry_run: bool,
     },
+    /// Import a recipe from a Mealie ZIP archive
+    ImportZip {
+        #[arg(long)]
+        file: std::path::PathBuf,
+        #[arg(long)]
+        dry_run: bool,
+    },
+    /// Import a recipe using the server's AI integration
+    ImportAi {
+        #[arg(long)]
+        content: Option<String>,
+        #[arg(long)]
+        url: Option<String>,
+        #[arg(long)]
+        image: Vec<std::path::PathBuf>,
+        #[arg(long)]
+        translate_language: Option<String>,
+        #[arg(long)]
+        create_new_organizers: bool,
+        #[arg(long)]
+        dry_run: bool,
+    },
     /// List available export templates
     ExportFormats,
     /// Export a recipe to a new file
@@ -344,6 +366,14 @@ pub enum BulkExportCommand {
 
 #[derive(Debug, Subcommand)]
 pub enum RecipeImageCommand {
+    /// Upload an image from a local file
+    Upload {
+        slug: String,
+        #[arg(long)]
+        file: std::path::PathBuf,
+        #[arg(long)]
+        dry_run: bool,
+    },
     /// Download a recipe image without overwriting an existing file
     Get {
         slug: String,

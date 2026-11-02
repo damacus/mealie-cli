@@ -700,6 +700,272 @@ fn recipe_image_get_supports_the_small_size() {
     image.assert();
 }
 
+// Mealie v3.30.0 OpenAPI: PUT /api/recipes/{slug}/image uses multipart
+// fields `image` and `extension`; POST /api/recipes/create/zip uses `archive`.
+#[test]
+fn uploads_recipe_image_as_multipart() {
+    let mut server = Server::new();
+    let path = std::env::temp_dir().join(format!("mealie-upload-{}.png", std::process::id()));
+    std::fs::write(&path, b"IMAGE_BYTES").unwrap();
+    let recipe = server
+        .mock("GET", "/api/recipes/soup")
+        .with_body(r#"{"id":"r1","name":"Soup","slug":"soup"}"#)
+        .create();
+    let upload = server
+        .mock("PUT", "/api/recipes/soup/image")
+        .match_header("authorization", "Bearer secret-token")
+        .match_header(
+            "content-type",
+            Matcher::Regex("^multipart/form-data; boundary=".into()),
+        )
+        .match_body(Matcher::AllOf(vec![
+            Matcher::Regex("name=\"image\"".into()),
+            Matcher::Regex("name=\"extension\"".into()),
+            Matcher::Regex("IMAGE_BYTES".into()),
+            Matcher::Regex("png".into()),
+        ]))
+        .with_body(r#"{"image":"new-version"}"#)
+        .create();
+    let result = run_from(
+        [
+            "mealie",
+            "recipes",
+            "image",
+            "upload",
+            "soup",
+            "--file",
+            path.to_str().unwrap(),
+            "--json",
+        ],
+        env(&server.url()),
+    );
+    std::fs::remove_file(path).unwrap();
+    let output = result.expect("image upload output");
+    let values: serde_json::Value = serde_json::from_str(&output).unwrap();
+    assert_eq!(values[0]["image"], "new-version");
+    assert!(!output.contains("secret-token"));
+    recipe.assert();
+    upload.assert();
+}
+
+#[test]
+fn imports_recipe_zip_as_multipart_archive() {
+    let mut server = Server::new();
+    let path =
+        std::env::temp_dir().join(format!("mealie-import-archive-{}.zip", std::process::id()));
+    std::fs::write(&path, b"ZIP_BYTES").unwrap();
+    let upload = server
+        .mock("POST", "/api/recipes/create/zip")
+        .match_header(
+            "content-type",
+            Matcher::Regex("^multipart/form-data; boundary=".into()),
+        )
+        .match_body(Matcher::AllOf(vec![
+            Matcher::Regex("name=\"archive\"".into()),
+            Matcher::Regex("ZIP_BYTES".into()),
+        ]))
+        .with_status(201)
+        .with_body(r#""soup""#)
+        .create();
+    let result = run_from(
+        [
+            "mealie",
+            "recipes",
+            "import-zip",
+            "--file",
+            path.to_str().unwrap(),
+            "--json",
+        ],
+        env(&server.url()),
+    );
+    std::fs::remove_file(path).unwrap();
+    let values: serde_json::Value =
+        serde_json::from_str(&result.expect("ZIP import output")).unwrap();
+    assert_eq!(values[0]["slug"], "soup");
+    upload.assert();
+}
+
+#[test]
+fn multipart_upload_previews_do_not_mutate_mealie() {
+    let mut server = Server::new();
+    let image =
+        std::env::temp_dir().join(format!("mealie-upload-preview-{}.png", std::process::id()));
+    let archive =
+        std::env::temp_dir().join(format!("mealie-archive-preview-{}.zip", std::process::id()));
+    std::fs::write(&image, b"IMAGE_BYTES").unwrap();
+    std::fs::write(&archive, b"ZIP_BYTES").unwrap();
+    let recipe = server
+        .mock("GET", "/api/recipes/soup")
+        .with_body(r#"{"id":"r1","name":"Soup","slug":"soup"}"#)
+        .create();
+    let image_result = run_from(
+        [
+            "mealie",
+            "recipes",
+            "image",
+            "upload",
+            "soup",
+            "--file",
+            image.to_str().unwrap(),
+            "--dry-run",
+            "--json",
+        ],
+        env(&server.url()),
+    );
+    let archive_result = run_from(
+        [
+            "mealie",
+            "recipes",
+            "import-zip",
+            "--file",
+            archive.to_str().unwrap(),
+            "--dry-run",
+            "--json",
+        ],
+        env(&server.url()),
+    );
+    std::fs::remove_file(image).unwrap();
+    std::fs::remove_file(archive).unwrap();
+    assert!(image_result.is_ok());
+    assert!(archive_result.is_ok());
+    recipe.assert();
+}
+
+#[test]
+fn imports_recipe_with_ai_using_text_and_image() {
+    let mut server = Server::new();
+    let path = std::env::temp_dir().join(format!("mealie-ai-import-{}.png", std::process::id()));
+    std::fs::write(&path, b"IMAGE_BYTES").unwrap();
+    let upload = server
+        .mock("POST", "/api/recipes/create/ai")
+        .match_header(
+            "content-type",
+            Matcher::Regex("^multipart/form-data; boundary=".into()),
+        )
+        .match_body(Matcher::AllOf(vec![
+            Matcher::Regex("name=\"content\"".into()),
+            Matcher::Regex("Recipe text".into()),
+            Matcher::Regex("name=\"images\"".into()),
+            Matcher::Regex("IMAGE_BYTES".into()),
+        ]))
+        .with_status(201)
+        .with_body(r#""soup""#)
+        .create();
+    let result = run_from(
+        [
+            "mealie",
+            "recipes",
+            "import-ai",
+            "--content",
+            "Recipe text",
+            "--image",
+            path.to_str().unwrap(),
+            "--json",
+        ],
+        env(&server.url()),
+    );
+    std::fs::remove_file(path).unwrap();
+    let values: serde_json::Value =
+        serde_json::from_str(&result.expect("AI import output")).unwrap();
+    assert_eq!(values[0]["slug"], "soup");
+    upload.assert();
+}
+
+#[test]
+fn ai_import_requires_at_least_one_source() {
+    let server = Server::new();
+    let error = run_from(["mealie", "recipes", "import-ai"], env(&server.url())).unwrap_err();
+    assert_eq!(error.code(), ErrorCode::InvalidArgs);
+    assert!(error.to_human().contains("source"));
+}
+
+#[test]
+fn ai_import_sends_options_and_multiple_images() {
+    let mut server = Server::new();
+    let first = std::env::temp_dir().join(format!("mealie-ai-first-{}.png", std::process::id()));
+    let second = std::env::temp_dir().join(format!("mealie-ai-second-{}.png", std::process::id()));
+    std::fs::write(&first, b"FIRST_IMAGE").unwrap();
+    std::fs::write(&second, b"SECOND_IMAGE").unwrap();
+    let upload = server
+        .mock("POST", "/api/recipes/create/ai")
+        .match_body(Matcher::AllOf(vec![
+            Matcher::Regex("name=\"url\"".into()),
+            Matcher::Regex("https://example.com/recipe".into()),
+            Matcher::Regex("name=\"translateLanguage\"".into()),
+            Matcher::Regex("French".into()),
+            Matcher::Regex("name=\"createNewOrganizers\"".into()),
+            Matcher::Regex("true".into()),
+            Matcher::Regex(
+                "(?s)name=\"images\".*FIRST_IMAGE.*name=\"images\".*SECOND_IMAGE".into(),
+            ),
+        ]))
+        .with_status(201)
+        .with_body(r#""soup""#)
+        .create();
+    let result = run_from(
+        [
+            "mealie",
+            "recipes",
+            "import-ai",
+            "--url",
+            "https://example.com/recipe",
+            "--image",
+            first.to_str().unwrap(),
+            "--image",
+            second.to_str().unwrap(),
+            "--translate-language",
+            "French",
+            "--create-new-organizers",
+        ],
+        env(&server.url()),
+    );
+    std::fs::remove_file(first).unwrap();
+    std::fs::remove_file(second).unwrap();
+    assert!(result.is_ok());
+    upload.assert();
+}
+
+#[test]
+fn ai_import_dry_run_does_not_submit() {
+    let server = Server::new();
+    let result = run_from(
+        [
+            "mealie",
+            "recipes",
+            "import-ai",
+            "--content",
+            "Recipe",
+            "--dry-run",
+            "--json",
+        ],
+        env(&server.url()),
+    )
+    .unwrap();
+    assert!(result.contains("recipe_import_plan"));
+}
+
+#[test]
+fn zip_import_rejects_missing_files_before_a_write() {
+    let server = Server::new();
+    let directory = std::env::temp_dir().join(format!("mealie-no-archive-{}", std::process::id()));
+    std::fs::create_dir(&directory).unwrap();
+    let missing = directory.join("missing.zip");
+    let error = run_from(
+        [
+            "mealie",
+            "recipes",
+            "import-zip",
+            "--file",
+            missing.to_str().unwrap(),
+        ],
+        env(&server.url()),
+    )
+    .unwrap_err();
+    std::fs::remove_dir(directory).unwrap();
+    assert_eq!(error.code(), ErrorCode::InvalidArgs);
+    assert!(error.to_human().contains("cannot read"));
+}
+
 #[test]
 fn creates_blank_recipe_and_returns_its_slug() {
     let mut server = Server::new();
