@@ -97,6 +97,38 @@ pub enum OrganizerCommand {
 
 #[derive(Debug, Subcommand)]
 pub enum RecipesCommand {
+    /// Import a recipe from a URL
+    ImportUrl {
+        #[arg(long)]
+        url: String,
+        #[arg(long)]
+        include_tags: bool,
+        #[arg(long)]
+        include_categories: bool,
+        #[arg(long)]
+        dry_run: bool,
+    },
+    /// Import a recipe from HTML or JSON
+    ImportFile {
+        #[arg(long)]
+        file: std::path::PathBuf,
+        #[arg(long)]
+        include_tags: bool,
+        #[arg(long)]
+        include_categories: bool,
+        #[arg(long)]
+        dry_run: bool,
+    },
+    /// List available export templates
+    ExportFormats,
+    /// Export a recipe to a new file
+    Export {
+        slug: String,
+        #[arg(long)]
+        template: String,
+        #[arg(long)]
+        output: std::path::PathBuf,
+    },
     /// Update recipe fields from a JSON object
     Patch {
         slug: String,

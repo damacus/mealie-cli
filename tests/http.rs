@@ -583,6 +583,115 @@ fn applies_a_recipe_json_patch_from_file() {
 }
 
 #[test]
+fn imports_recipe_from_url_with_explicit_organizer_options() {
+    let mut server = Server::new();
+    let mock = server.mock("POST", "/api/recipes/create/url")
+        .match_body(Matcher::Json(serde_json::json!({"url":"https://example.com/recipe", "includeTags":true,"includeCategories":false})))
+        .with_status(201).with_body(r#""soup""#).create();
+    let output = run_from(
+        [
+            "mealie",
+            "recipes",
+            "import-url",
+            "--url",
+            "https://example.com/recipe",
+            "--include-tags",
+            "--json",
+        ],
+        env(&server.url()),
+    )
+    .unwrap();
+    let values: serde_json::Value = serde_json::from_str(&output).unwrap();
+    assert_eq!(values[0]["slug"], "soup");
+    mock.assert();
+}
+
+#[test]
+fn exports_recipe_without_overwriting_existing_file() {
+    let mut server = Server::new();
+    let mock = server
+        .mock("GET", "/api/recipes/soup/exports")
+        .match_query(Matcher::UrlEncoded("template_name".into(), "plain".into()))
+        .with_body("SOUP")
+        .create();
+    let path = std::env::temp_dir().join(format!("mealie-export-{}.txt", std::process::id()));
+    std::fs::write(&path, "existing").unwrap();
+    let filename = path.to_str().unwrap();
+    let error = run_from(
+        [
+            "mealie",
+            "recipes",
+            "export",
+            "soup",
+            "--template",
+            "plain",
+            "--output",
+            filename,
+        ],
+        env(&server.url()),
+    )
+    .unwrap_err();
+    assert_eq!(error.code(), ErrorCode::InvalidArgs);
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), "existing");
+    std::fs::remove_file(&path).unwrap();
+    run_from(
+        [
+            "mealie",
+            "recipes",
+            "export",
+            "soup",
+            "--template",
+            "plain",
+            "--output",
+            filename,
+        ],
+        env(&server.url()),
+    )
+    .unwrap();
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), "SOUP");
+    std::fs::remove_file(path).unwrap();
+    mock.assert();
+}
+
+#[test]
+fn imports_recipe_data_from_file() {
+    let mut server = Server::new();
+    let path = std::env::temp_dir().join(format!("mealie-import-{}.json", std::process::id()));
+    std::fs::write(&path, "{\"name\":\"Soup\"}").unwrap();
+    let mock = server.mock("POST", "/api/recipes/create/html-or-json")
+        .match_body(Matcher::Json(serde_json::json!({"data":"{\"name\":\"Soup\"}","includeTags":false,"includeCategories":true})))
+        .with_status(201).with_body(r#""soup""#).create();
+    let output = run_from(
+        [
+            "mealie",
+            "recipes",
+            "import-file",
+            "--file",
+            path.to_str().unwrap(),
+            "--include-categories",
+            "--quiet",
+        ],
+        env(&server.url()),
+    )
+    .unwrap();
+    std::fs::remove_file(path).unwrap();
+    assert_eq!(output, "soup\n");
+    mock.assert();
+}
+
+#[test]
+fn lists_export_formats() {
+    let mut server = Server::new();
+    let _mock = server
+        .mock("GET", "/api/recipes/exports")
+        .with_body(r#"{"json":["default"],"zip":["compact"]}"#)
+        .create();
+    let output = run_from(["mealie", "recipes", "export-formats"], env(&server.url())).unwrap();
+    assert!(output.contains("default"));
+    assert!(output.contains("compact"));
+}
+
+#[test]
 fn merge_tags_sends_from_and_to_ids() {
     let mut server = Server::new();
     let mock = server
