@@ -363,6 +363,34 @@ fn adds_a_tag_without_losing_existing_assignments() {
 }
 
 #[test]
+fn can_add_to_a_null_organizer_list() {
+    let mut server = Server::new();
+    let recipe = server
+        .mock("GET", "/api/recipes/soup")
+        .with_body(r#"{"id":"r1","slug":"soup","name":"Soup","tags":null}"#)
+        .create();
+    let tag = server
+        .mock("GET", "/api/organizers/tags/new")
+        .with_body(r#"{"id":"new","name":"Quick","slug":"quick"}"#)
+        .create();
+    let patch = server
+        .mock("PATCH", "/api/recipes/soup")
+        .match_body(Matcher::Json(
+            serde_json::json!({"tags":[{"id":"new","name":"Quick","slug":"quick"}]}),
+        ))
+        .with_body(r#"{"id":"r1","slug":"soup","name":"Soup"}"#)
+        .create();
+    run_from(
+        ["mealie", "recipes", "organize", "soup", "--add-tag", "new"],
+        env(&server.url()),
+    )
+    .unwrap();
+    recipe.assert();
+    tag.assert();
+    patch.assert();
+}
+
+#[test]
 fn organizer_removal_dry_run_preserves_other_tags() {
     let mut server = Server::new();
     let recipe = server.mock("GET", "/api/recipes/soup")
