@@ -1187,8 +1187,55 @@ fn bulk_export_purge_requires_explicit_confirmation() {
         env(&server.url()),
     )
     .unwrap();
-    assert!(output.contains("purged"));
+    assert!(output.contains("purge request completed"));
     mock.assert();
+}
+
+#[test]
+fn bulk_export_purge_reports_the_server_result_without_claiming_all_removed() {
+    let mut server = Server::new();
+    let mock = server
+        .mock("DELETE", "/api/recipes/bulk-actions/export/purge")
+        .with_body(r#"{"message":"2 exports deleted","error":false}"#)
+        .expect(2)
+        .create();
+    let human = run_from(
+        ["mealie", "recipes", "bulk-export", "purge", "--yes"],
+        env(&server.url()),
+    )
+    .unwrap();
+    assert!(human.contains("2 exports deleted"));
+    assert!(!human.contains("All group recipe exports purged"));
+    let json = run_from(
+        [
+            "mealie",
+            "recipes",
+            "bulk-export",
+            "purge",
+            "--yes",
+            "--json",
+        ],
+        env(&server.url()),
+    )
+    .unwrap();
+    let values: serde_json::Value = serde_json::from_str(&json).unwrap();
+    assert_eq!(values[0]["message"], "2 exports deleted");
+    mock.assert();
+}
+
+#[test]
+fn bulk_export_purge_reports_a_server_error_flag() {
+    let mut server = Server::new();
+    let _mock = server
+        .mock("DELETE", "/api/recipes/bulk-actions/export/purge")
+        .with_body(r#"{"message":"failed","error":true}"#)
+        .create();
+    let error = run_from(
+        ["mealie", "recipes", "bulk-export", "purge", "--yes"],
+        env(&server.url()),
+    )
+    .unwrap_err();
+    assert_eq!(error.code(), ErrorCode::ApiError);
 }
 
 #[test]
