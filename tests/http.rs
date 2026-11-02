@@ -32,6 +32,66 @@ fn lists_untagged_recipes_across_pages() {
 }
 
 #[test]
+fn collection_lists_support_existing_pagination_variants() {
+    for body in [
+        r#"{"items":[{"id":"t1","name":"Quick","slug":"quick"}],"totalPages":1}"#,
+        r#"{"items":[{"id":"t1","name":"Quick","slug":"quick"}]}"#,
+    ] {
+        let mut server = Server::new();
+        let _mock = server
+            .mock("GET", "/api/organizers/tags")
+            .match_query(Matcher::Any)
+            .with_body(body)
+            .create();
+        let output = run_from(["mealie", "tags", "list", "--json"], env(&server.url())).unwrap();
+        let values: serde_json::Value = serde_json::from_str(&output).unwrap();
+        assert_eq!(values[0]["name"], "Quick");
+    }
+}
+
+#[test]
+fn exact_name_lookup_fetches_full_recipe() {
+    let mut server = Server::new();
+    let _slug = server
+        .mock("GET", "/api/recipes/Pesto%20Chicken")
+        .with_status(404)
+        .create();
+    let _search = server
+        .mock("GET", "/api/recipes")
+        .match_query(Matcher::Any)
+        .with_body(r#"{"items":[{"id":"r1","slug":"pesto-chicken","name":"Pesto Chicken"}]}"#)
+        .create();
+    let detail = server.mock("GET", "/api/recipes/pesto-chicken").with_body(r#"{"id":"r1","slug":"pesto-chicken","name":"Pesto Chicken","recipeInstructions":[{"text":"Cook"}]}"#).create();
+    let output = run_from(
+        ["mealie", "recipes", "get", "Pesto Chicken", "--json"],
+        env(&server.url()),
+    )
+    .unwrap();
+    let values: serde_json::Value = serde_json::from_str(&output).unwrap();
+    assert_eq!(values[0]["recipeInstructions"][0]["text"], "Cook");
+    detail.assert();
+}
+
+#[test]
+fn human_description_dry_run_shows_proposed_text() {
+    let server = Server::new();
+    let output = run_from(
+        [
+            "mealie",
+            "recipes",
+            "update",
+            "soup",
+            "--description",
+            "Fresh soup",
+            "--dry-run",
+        ],
+        env(&server.url()),
+    )
+    .unwrap();
+    assert!(output.contains("Fresh soup"));
+}
+
+#[test]
 fn recipe_details_include_catalogue_metadata() {
     let mut server = Server::new();
     let _mock = server.mock("GET", "/api/recipes/soup").with_body(r#"{"id":"1","slug":"soup","name":"Soup","description":"A soup","tags":[{"name":"Quick"}],"recipeCategory":[{"name":"Starter"}],"recipeInstructions":[{"text":"Cook"}],"image":"abc"}"#).create();
@@ -410,6 +470,12 @@ fn gets_recipe_by_unique_case_insensitive_name_after_slug_lookup_misses() {
         .expect(1)
         .create();
 
+    let detail = server
+        .mock("GET", "/api/recipes/pesto-chicken")
+        .with_body(r#"{"id":"r1","slug":"pesto-chicken","name":"pEsTo ChIcKeN"}"#)
+        .expect(1)
+        .create();
+
     let output = run_from(
         ["mealie", "--json", "recipes", "get", "Pesto Chicken"],
         env(&server.url()),
@@ -420,6 +486,7 @@ fn gets_recipe_by_unique_case_insensitive_name_after_slug_lookup_misses() {
     assert!(output.contains("\"name\": \"pEsTo ChIcKeN\""));
     slug.assert();
     search.assert();
+    detail.assert();
 }
 
 #[test]

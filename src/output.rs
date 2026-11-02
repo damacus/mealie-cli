@@ -110,6 +110,14 @@ fn write_human(presentation: &Presentation, values: &[Value]) -> String {
                 .map(|value| vec![text(value, "name"), text(value, "slug"), text(value, "id")])
                 .collect(),
         ),
+        Presentation::RecipeUpdate if text(&values[0], "type") == "recipe_update_plan" => format!(
+            "Recipe update planned: {}\nDescription: {}\n",
+            text(&values[0], "slug"),
+            values[0]
+                .get("changes")
+                .map(|changes| text(changes, "description"))
+                .unwrap_or_else(|| "-".to_string())
+        ),
         Presentation::RecipeUpdate => format!(
             "Recipe {}: {}\n",
             if text(&values[0], "type") == "recipe_update_plan" {
