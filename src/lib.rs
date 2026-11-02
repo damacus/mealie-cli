@@ -511,6 +511,159 @@ fn execute(
             })
         }
         Command::Recipes(recipes) => match recipes {
+            RecipesCommand::BulkExport(command) => match command {
+                cli::BulkExportCommand::Start { recipe, dry_run } => {
+                    for slug in &recipe {
+                        validate_path_segment(slug)?;
+                    }
+                    if recipe
+                        .iter()
+                        .collect::<std::collections::HashSet<_>>()
+                        .len()
+                        != recipe.len()
+                    {
+                        return Err(AppError::new(
+                            ErrorCode::InvalidArgs,
+                            "duplicate recipes are not allowed",
+                        ));
+                    }
+                    let payload = serde_json::json!({"recipes":recipe,"exportType":"json"});
+                    if !dry_run {
+                        client.bulk_action("export", &payload)?;
+                    }
+                    Ok(CommandOutput {
+                        presentation: Presentation::BulkExportStart { dry_run },
+                        values: vec![record(
+                            if dry_run {
+                                "recipe_bulk_export_plan"
+                            } else {
+                                "recipe_bulk_export_requested"
+                            },
+                            [("request", payload)],
+                        )],
+                    })
+                }
+                cli::BulkExportCommand::List => {
+                    let exports = client.list_bulk_exports()?;
+                    let items = exports.as_array().ok_or_else(|| {
+                        AppError::new(ErrorCode::ApiError, "invalid export list response")
+                    })?;
+                    let values = items
+                        .iter()
+                        .map(|item| {
+                            record(
+                                "recipe_bulk_export",
+                                [
+                                    (
+                                        "id",
+                                        item.get("id").cloned().unwrap_or(serde_json::Value::Null),
+                                    ),
+                                    (
+                                        "name",
+                                        item.get("name")
+                                            .cloned()
+                                            .unwrap_or(serde_json::Value::Null),
+                                    ),
+                                    (
+                                        "filename",
+                                        item.get("filename")
+                                            .cloned()
+                                            .unwrap_or(serde_json::Value::Null),
+                                    ),
+                                    (
+                                        "expires",
+                                        item.get("expires")
+                                            .cloned()
+                                            .unwrap_or(serde_json::Value::Null),
+                                    ),
+                                ],
+                            )
+                        })
+                        .collect();
+                    Ok(CommandOutput {
+                        presentation: Presentation::BulkExportList,
+                        values,
+                    })
+                }
+                cli::BulkExportCommand::Download { id, output } => {
+                    use std::io::Write;
+                    validate_path_segment(&id)?;
+                    if output.exists() {
+                        return Err(AppError::new(
+                            ErrorCode::InvalidArgs,
+                            "export output already exists",
+                        ));
+                    }
+                    let bytes = client.download_bulk_export(&id)?;
+                    let mut file = std::fs::OpenOptions::new()
+                        .write(true)
+                        .create_new(true)
+                        .open(&output)
+                        .map_err(|error| {
+                            AppError::new(
+                                ErrorCode::InvalidArgs,
+                                format!("cannot create export file: {error}"),
+                            )
+                        })?;
+                    file.write_all(&bytes).map_err(|error| {
+                        AppError::new(
+                            ErrorCode::ApiError,
+                            format!("cannot write export file: {error}"),
+                        )
+                    })?;
+                    Ok(CommandOutput {
+                        presentation: Presentation::RecipeExport,
+                        values: vec![record(
+                            "recipe_bulk_export_downloaded",
+                            [
+                                ("id", serde_json::json!(id)),
+                                ("output", serde_json::json!(output)),
+                            ],
+                        )],
+                    })
+                }
+                cli::BulkExportCommand::Purge { yes, dry_run } => {
+                    if !yes && !dry_run {
+                        return Err(AppError::new(
+                            ErrorCode::InvalidArgs,
+                            "purge removes all group exports; pass --yes or --dry-run",
+                        ));
+                    }
+                    let message = if dry_run {
+                        None
+                    } else {
+                        let response = client.purge_bulk_exports()?;
+                        if response
+                            .as_ref()
+                            .and_then(|value| value.get("error"))
+                            .and_then(serde_json::Value::as_bool)
+                            == Some(true)
+                        {
+                            return Err(AppError::new(
+                                ErrorCode::ApiError,
+                                "Mealie reported that the export purge failed",
+                            ));
+                        }
+                        response.and_then(|value| {
+                            value
+                                .get("message")
+                                .and_then(serde_json::Value::as_str)
+                                .map(str::to_owned)
+                        })
+                    };
+                    Ok(CommandOutput {
+                        presentation: Presentation::BulkExportPurge { dry_run },
+                        values: vec![record(
+                            if dry_run {
+                                "recipe_bulk_export_purge_plan"
+                            } else {
+                                "recipe_bulk_export_purged"
+                            },
+                            [("message", serde_json::json!(message))],
+                        )],
+                    })
+                }
+            },
             RecipesCommand::BulkSettings {
                 recipe,
                 file,

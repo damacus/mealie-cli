@@ -92,6 +92,70 @@ impl<'a> PlanCreateRequest<'a> {
 }
 
 impl MealieClient {
+    pub fn list_bulk_exports(&self) -> Result<Value, AppError> {
+        self.http
+            .get(self.config.endpoint("/api/recipes/bulk-actions/export"))
+            .bearer_auth(&self.config.token)
+            .send()
+            .map_err(AppError::from)
+            .and_then(|response| checked_json(response, "list recipe exports"))
+    }
+    pub fn download_bulk_export(&self, id: &str) -> Result<Vec<u8>, AppError> {
+        let value = self
+            .http
+            .get(
+                self.config
+                    .endpoint(&format!("/api/recipes/bulk-actions/export/{id}/download")),
+            )
+            .bearer_auth(&self.config.token)
+            .send()
+            .map_err(AppError::from)
+            .and_then(|response| checked_json(response, "get recipe export"))?;
+        let token = value
+            .get("fileToken")
+            .and_then(Value::as_str)
+            .filter(|token| !token.is_empty())
+            .ok_or_else(|| {
+                AppError::new(ErrorCode::ApiError, "export response missing file token")
+            })?;
+        let download_client = Client::builder()
+            .timeout(REQUEST_TIMEOUT)
+            .redirect(reqwest::redirect::Policy::none())
+            .referer(false)
+            .build()
+            .map_err(|error| AppError::from(error.without_url()))?;
+        let response = download_client
+            .get(self.config.endpoint("/api/utils/download"))
+            .query(&[("token", token)])
+            .send()
+            .map_err(|error| AppError::from(error.without_url()))?;
+        let status = response.status();
+        if !status.is_success() {
+            return Err(AppError::new(
+                if matches!(status, StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN) {
+                    ErrorCode::Authentication
+                } else {
+                    ErrorCode::ApiError
+                },
+                format!("download recipe export failed (HTTP {status})"),
+            ));
+        }
+        response
+            .bytes()
+            .map(|bytes| bytes.to_vec())
+            .map_err(|error| AppError::from(error.without_url()))
+    }
+    pub fn purge_bulk_exports(&self) -> Result<Option<Value>, AppError> {
+        self.http
+            .delete(
+                self.config
+                    .endpoint("/api/recipes/bulk-actions/export/purge"),
+            )
+            .bearer_auth(&self.config.token)
+            .send()
+            .map_err(AppError::from)
+            .and_then(|response| checked_optional_json(response, "purge recipe exports"))
+    }
     pub fn bulk_action(&self, action: &str, payload: &Value) -> Result<(), AppError> {
         self.http
             .post(

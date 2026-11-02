@@ -97,6 +97,9 @@ pub enum OrganizerCommand {
 
 #[derive(Debug, Subcommand)]
 pub enum RecipesCommand {
+    /// Manage bulk recipe exports
+    #[command(subcommand)]
+    BulkExport(BulkExportCommand),
     /// Replace settings on several recipes, preserving each lock state
     BulkSettings {
         #[arg(long, required = true)]
@@ -234,6 +237,33 @@ pub enum RecipesCommand {
     Get {
         /// Recipe slug, or an exact case-insensitive recipe name
         slug: String,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+pub enum BulkExportCommand {
+    /// Request an export for selected recipes
+    Start {
+        #[arg(long, required = true)]
+        recipe: Vec<String>,
+        #[arg(long)]
+        dry_run: bool,
+    },
+    /// List available exports
+    List,
+    /// Download a completed export to a new file
+    Download {
+        #[arg(long)]
+        id: String,
+        #[arg(long)]
+        output: std::path::PathBuf,
+    },
+    /// Purge all group exports
+    Purge {
+        #[arg(long, conflicts_with = "dry_run")]
+        yes: bool,
+        #[arg(long)]
+        dry_run: bool,
     },
 }
 
