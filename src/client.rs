@@ -168,17 +168,15 @@ impl MealieClient {
                 .ok_or_else(|| {
                     AppError::new(ErrorCode::ApiError, "recipe list response missing items")
                 })?;
+            let item_count = items.len();
             result.extend(items.iter().cloned());
             let total_pages = value
                 .get("total_pages")
-                .and_then(Value::as_u64)
-                .ok_or_else(|| {
-                    AppError::new(
-                        ErrorCode::ApiError,
-                        "recipe list response missing total_pages",
-                    )
-                })?;
-            if page >= total_pages {
+                .or_else(|| value.get("totalPages"))
+                .and_then(Value::as_u64);
+            if total_pages.is_some_and(|total| page >= total)
+                || total_pages.is_none() && item_count < 100
+            {
                 break;
             }
             page += 1;
@@ -251,6 +249,17 @@ impl MealieClient {
             Ok(recipe) => Ok(recipe),
             Err(not_found) if not_found.code() == ErrorCode::NotFound => {
                 self.resolve_recipe_name(query, not_found)
+            }
+            Err(error) => Err(error),
+        }
+    }
+
+    pub fn resolve_recipe_details(&self, query: &str) -> Result<Recipe, AppError> {
+        match self.get_recipe(query) {
+            Ok(recipe) => Ok(recipe),
+            Err(error) if error.code() == ErrorCode::NotFound => {
+                let summary = self.resolve_recipe_name(query, error)?;
+                self.get_recipe(&summary.slug)
             }
             Err(error) => Err(error),
         }

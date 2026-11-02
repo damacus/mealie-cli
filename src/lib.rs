@@ -721,7 +721,7 @@ fn recipes_get(
     client: &MealieClient,
     recipe_query: &str,
 ) -> Result<Vec<serde_json::Value>, AppError> {
-    let recipe = client.resolve_recipe(recipe_query)?;
+    let recipe = client.resolve_recipe_details(recipe_query)?;
 
     let mut result = record(
         "recipe",
