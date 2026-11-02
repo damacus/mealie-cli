@@ -45,6 +45,9 @@ pub enum Presentation {
         action: &'static str,
     },
     RecipeUpdate,
+    RecipeOrganize {
+        dry_run: bool,
+    },
     RecipeSearch {
         query: String,
     },
@@ -102,6 +105,17 @@ pub fn write_output(mode: OutputMode, output: CommandOutput) -> Result<String, A
 fn write_human(presentation: &Presentation, values: &[Value]) -> String {
     match presentation {
         Presentation::Status => write_status(&values[0]),
+        Presentation::RecipeOrganize { dry_run } => {
+            if *dry_run {
+                format!(
+                    "Recipe update planned: {}\nChanges: {}\n",
+                    text(&values[0], "slug"),
+                    values[0]["changes"]
+                )
+            } else {
+                format!("Recipe updated: {}\n", text(&values[0], "slug"))
+            }
+        }
         Presentation::OrganizerChange { action } => {
             format!("{action} organiser: {}\n", text(&values[0], "id"))
         }

@@ -511,6 +511,111 @@ fn execute(
             })
         }
         Command::Recipes(recipes) => match recipes {
+            RecipesCommand::Organize {
+                slug,
+                add_tag,
+                remove_tag,
+                add_category,
+                remove_category,
+                dry_run,
+            } => {
+                let (field, base, id, add) =
+                    match (add_tag, remove_tag, add_category, remove_category) {
+                        (Some(id), None, None, None) => ("tags", "/api/organizers/tags", id, true),
+                        (None, Some(id), None, None) => ("tags", "/api/organizers/tags", id, false),
+                        (None, None, Some(id), None) => {
+                            ("recipeCategory", "/api/organizers/categories", id, true)
+                        }
+                        (None, None, None, Some(id)) => {
+                            ("recipeCategory", "/api/organizers/categories", id, false)
+                        }
+                        _ => {
+                            return Err(AppError::new(
+                                ErrorCode::InvalidArgs,
+                                "choose exactly one organiser change",
+                            ));
+                        }
+                    };
+                validate_path_segment(&slug)?;
+                validate_path_segment(&id)?;
+                let recipe = client.get_recipe(&slug)?;
+                let mut assignments = recipe
+                    .raw
+                    .get(field)
+                    .and_then(serde_json::Value::as_array)
+                    .cloned()
+                    .ok_or_else(|| {
+                        AppError::new(
+                            ErrorCode::ApiError,
+                            format!("recipe response missing {field}"),
+                        )
+                    })?;
+                if assignments
+                    .iter()
+                    .any(|item| item.get("id").and_then(serde_json::Value::as_str).is_none())
+                {
+                    return Err(AppError::new(
+                        ErrorCode::ApiError,
+                        "organiser assignment missing id",
+                    ));
+                }
+                let present = assignments.iter().any(|item| {
+                    item.get("id").and_then(serde_json::Value::as_str) == Some(id.as_str())
+                });
+                if add && !present {
+                    let organizer = client.get_organizer(&format!("{base}/{id}"))?;
+                    if organizer.get("id").and_then(serde_json::Value::as_str) != Some(id.as_str())
+                        || organizer
+                            .get("name")
+                            .and_then(serde_json::Value::as_str)
+                            .is_none()
+                    {
+                        return Err(AppError::new(
+                            ErrorCode::ApiError,
+                            "invalid organiser response",
+                        ));
+                    }
+                    assignments.push(organizer);
+                } else if !add && present {
+                    assignments.retain(|item| {
+                        item.get("id").and_then(serde_json::Value::as_str) != Some(id.as_str())
+                    });
+                } else {
+                    return Err(AppError::new(
+                        ErrorCode::InvalidArgs,
+                        if add {
+                            "organiser already assigned"
+                        } else {
+                            "organiser is not assigned"
+                        },
+                    ));
+                }
+                let mut patch = serde_json::Map::new();
+                patch.insert(field.to_string(), assignments.into());
+                let patch = serde_json::Value::Object(patch);
+                let mut value = if dry_run {
+                    serde_json::json!({"slug":slug,"changes":patch})
+                } else {
+                    client.update_recipe(&slug, &patch)?
+                };
+                let object = value.as_object_mut().ok_or_else(|| {
+                    AppError::new(ErrorCode::ApiError, "invalid recipe update response")
+                })?;
+                object.insert("ok".into(), true.into());
+                object.insert(
+                    "type".into(),
+                    if dry_run {
+                        "recipe_organize_plan"
+                    } else {
+                        "recipe_updated"
+                    }
+                    .into(),
+                );
+                Ok(CommandOutput {
+                    presentation: Presentation::RecipeOrganize { dry_run },
+                    values: vec![value],
+                })
+            }
             RecipesCommand::Update {
                 slug,
                 description,

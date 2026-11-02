@@ -100,3 +100,10 @@ preview the action. Rename also supports `--dry-run`.
 Add `--dry-run` to show the proposed change without sending it to Mealie.
 Structured `recipes get` output includes catalogue metadata when supplied by
 the server.
+
+Use `mealie recipes organize <slug> --add-tag <id>` or `--remove-tag <id>`
+to change tags. Use `--add-category <id>` or `--remove-category <id>` for
+categories. Supply one change per invocation; `--dry-run` reads the current
+recipe and previews the resulting assignments without changing Mealie. The
+command reads and then replaces the selected assignment list, so avoid editing
+the same list concurrently in another client.
