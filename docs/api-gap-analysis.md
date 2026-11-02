@@ -14,9 +14,9 @@ below includes changes in the stack that are not in the 0.1.4 release.
 | Suggestions and last made | `GET /api/recipes/suggestions`, `PATCH /api/recipes/{slug}/last-made` | `recipes suggest`, `last-made` |
 | Import from URL or HTML/JSON | `POST /api/recipes/create/url`, `POST /api/recipes/create/html-or-json` | `recipes import-url`, `import-file` |
 | Bulk URL import | `POST /api/recipes/create/url/bulk`, `GET /api/groups/reports/{id}` | `recipes bulk-import`, `import-report`; the report tracks asynchronous work |
-| ZIP and AI-assisted import | `POST /api/recipes/create/zip`, `POST /api/recipes/create/ai` | Not yet available; both use multipart requests |
+| ZIP and AI-assisted import | `POST /api/recipes/create/zip`, `POST /api/recipes/create/ai` | `recipes import-zip`, `import-ai` |
 | Export a recipe | `GET /api/recipes/exports`, `GET /api/recipes/{slug}/exports` | `recipes export-formats`, `export` |
-| Recipe image | `GET /api/media/recipes/{id}/images/{name}`, `POST`, `PUT` and `DELETE /api/recipes/{slug}/image` | `recipes image get`, `set-url`, `delete`; local file upload is not yet available |
+| Recipe image | `GET /api/media/recipes/{id}/images/{name}`, `POST`, `PUT` and `DELETE /api/recipes/{slug}/image` | `recipes image get`, `set-url`, `upload`, `delete` |
 | Bulk assignment and settings | `POST /api/recipes/bulk-actions/tag`, `/categorize`, `/settings` | `recipes bulk-tag`, `bulk-categorize`, `bulk-settings`; results are verified per recipe |
 | Bulk delete | `POST /api/recipes/bulk-actions/delete` | `recipes bulk-delete`; requires confirmation and checks for partial results |
 | Bulk export | `POST` and `GET /api/recipes/bulk-actions/export`, its download endpoint and `DELETE /purge` | `recipes bulk-export start`, `list`, `download`, `purge` |

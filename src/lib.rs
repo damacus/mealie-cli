@@ -1360,6 +1360,100 @@ fn execute(
                     )],
                 })
             }
+            RecipesCommand::ImportZip { file, dry_run } => {
+                let part = upload_part(&file)?;
+                let form = reqwest::blocking::multipart::Form::new().part("archive", part);
+                let slug = if dry_run {
+                    None
+                } else {
+                    Some(client.import_multipart("/api/recipes/create/zip", form)?)
+                };
+                Ok(CommandOutput {
+                    presentation: Presentation::RecipeImport { dry_run },
+                    values: vec![record(
+                        if dry_run {
+                            "recipe_import_plan"
+                        } else {
+                            "recipe_imported"
+                        },
+                        [
+                            ("slug", serde_json::json!(slug)),
+                            ("source", serde_json::json!({"file": file})),
+                        ],
+                    )],
+                })
+            }
+            RecipesCommand::ImportAi {
+                content,
+                url,
+                image,
+                translate_language,
+                create_new_organizers,
+                dry_run,
+            } => {
+                if content.as_deref().is_none_or(|s| s.trim().is_empty())
+                    && url.as_deref().is_none_or(|s| s.trim().is_empty())
+                    && image.is_empty()
+                {
+                    return Err(AppError::new(
+                        ErrorCode::InvalidArgs,
+                        "AI import requires at least one source: content, URL or image",
+                    ));
+                }
+                if let Some(ref value) = url {
+                    let parsed = reqwest::Url::parse(value).map_err(|_| {
+                        AppError::new(
+                            ErrorCode::InvalidArgs,
+                            "recipe URL must be an HTTP or HTTPS URL",
+                        )
+                    })?;
+                    if !matches!(parsed.scheme(), "http" | "https")
+                        || !parsed.username().is_empty()
+                        || parsed.password().is_some()
+                    {
+                        return Err(AppError::new(
+                            ErrorCode::InvalidArgs,
+                            "recipe URL must use HTTP or HTTPS and contain no credentials",
+                        ));
+                    }
+                }
+                let mut form = reqwest::blocking::multipart::Form::new()
+                    .text("createNewOrganizers", create_new_organizers.to_string());
+                if let Some(ref value) = content {
+                    form = form.text("content", value.clone());
+                }
+                if let Some(ref value) = url {
+                    form = form.text("url", value.clone());
+                }
+                if let Some(ref value) = translate_language {
+                    form = form.text("translateLanguage", value.clone());
+                }
+                for path in &image {
+                    form = form.part("images", upload_part(path)?);
+                }
+                let slug = if dry_run {
+                    None
+                } else {
+                    Some(client.import_multipart("/api/recipes/create/ai", form)?)
+                };
+                Ok(CommandOutput {
+                    presentation: Presentation::RecipeImport { dry_run },
+                    values: vec![record(
+                        if dry_run {
+                            "recipe_import_plan"
+                        } else {
+                            "recipe_imported"
+                        },
+                        [
+                            ("slug", serde_json::json!(slug)),
+                            (
+                                "source",
+                                serde_json::json!({"url":url,"images":image,"hasContent":content.is_some(),"translateLanguage":translate_language,"createNewOrganizers":create_new_organizers}),
+                            ),
+                        ],
+                    )],
+                })
+            }
             RecipesCommand::ExportFormats => {
                 let formats = client.export_formats()?;
                 Ok(CommandOutput {
@@ -1518,6 +1612,67 @@ fn execute(
                 })
             }
             RecipesCommand::Image(image) => match image {
+                cli::RecipeImageCommand::Upload {
+                    slug,
+                    file,
+                    dry_run,
+                } => {
+                    validate_path_segment(&slug)?;
+                    let extension = file
+                        .extension()
+                        .and_then(|s| s.to_str())
+                        .unwrap_or("")
+                        .to_ascii_lowercase();
+                    if ![
+                        "jpg", "jpeg", "jpe", "jfif", "png", "webp", "heic", "avif", "gif", "bmp",
+                        "tif", "tiff",
+                    ]
+                    .contains(&extension.as_str())
+                    {
+                        return Err(AppError::new(
+                            ErrorCode::InvalidArgs,
+                            "unsupported image file extension",
+                        ));
+                    }
+                    let part = upload_part(&file)?;
+                    let recipe = client.get_recipe(&slug)?;
+                    let image = if dry_run {
+                        serde_json::Value::Null
+                    } else {
+                        let form = reqwest::blocking::multipart::Form::new()
+                            .part("image", part)
+                            .text("extension", extension);
+                        client
+                            .upload_image(&slug, form)?
+                            .get("image")
+                            .cloned()
+                            .ok_or_else(|| {
+                                AppError::new(ErrorCode::ApiError, "image response missing image")
+                            })?
+                    };
+                    Ok(CommandOutput {
+                        presentation: Presentation::RecipeImage {
+                            action: if dry_run {
+                                "Would upload image for"
+                            } else {
+                                "Updated image for"
+                            },
+                        },
+                        values: vec![record(
+                            if dry_run {
+                                "recipe_image_plan"
+                            } else {
+                                "recipe_image_updated"
+                            },
+                            [
+                                ("id", serde_json::json!(recipe.id)),
+                                ("slug", serde_json::json!(slug)),
+                                ("file", serde_json::json!(file)),
+                                ("image", image),
+                            ],
+                        )],
+                    })
+                }
                 cli::RecipeImageCommand::Get { slug, output, size } => {
                     use std::io::Write;
                     validate_path_segment(&slug)?;
@@ -2230,6 +2385,21 @@ fn plan_delete(client: &MealieClient, id: i64) -> Result<Vec<serde_json::Value>,
             ("recipe", serde_json::json!(deleted.recipe)),
         ],
     )])
+}
+
+fn upload_part(path: &std::path::Path) -> Result<reqwest::blocking::multipart::Part, AppError> {
+    if !path.is_file() {
+        return Err(AppError::new(
+            ErrorCode::InvalidArgs,
+            "cannot read upload file",
+        ));
+    }
+    reqwest::blocking::multipart::Part::file(path).map_err(|error| {
+        AppError::new(
+            ErrorCode::InvalidArgs,
+            format!("cannot read upload file: {error}"),
+        )
+    })
 }
 
 #[cfg(test)]
