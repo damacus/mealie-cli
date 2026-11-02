@@ -97,6 +97,41 @@ pub enum OrganizerCommand {
 
 #[derive(Debug, Subcommand)]
 pub enum RecipesCommand {
+    /// Duplicate a recipe, optionally choosing a name
+    Duplicate {
+        slug: String,
+        #[arg(long)]
+        name: Option<String>,
+        #[arg(long)]
+        dry_run: bool,
+    },
+    /// Set the last-made timestamp
+    LastMade {
+        slug: String,
+        #[arg(long)]
+        timestamp: String,
+        #[arg(long)]
+        dry_run: bool,
+    },
+    /// Suggest recipes using available food and tools
+    Suggest {
+        #[arg(long)]
+        food: Vec<String>,
+        #[arg(long)]
+        tool: Vec<String>,
+        #[arg(long, default_value_t = 10, value_parser = clap::value_parser!(u32).range(1..=100))]
+        limit: u32,
+        #[arg(long)]
+        max_missing_foods: Option<u32>,
+        #[arg(long)]
+        max_missing_tools: Option<u32>,
+        #[arg(long)]
+        exclude_foods_on_hand: bool,
+        #[arg(long)]
+        exclude_tools_on_hand: bool,
+        #[arg(long)]
+        exclude_substitutions: bool,
+    },
     /// Manage bulk recipe exports
     #[command(subcommand)]
     BulkExport(BulkExportCommand),

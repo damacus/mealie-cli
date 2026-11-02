@@ -1225,6 +1225,110 @@ fn bulk_export_list_omits_internal_server_paths() {
 }
 
 #[test]
+fn duplicates_recipe_with_optional_name() {
+    let mut server = Server::new();
+    let mock = server
+        .mock("POST", "/api/recipes/soup/duplicate")
+        .match_body(Matcher::Json(serde_json::json!({"name":"Soup Copy"})))
+        .with_status(201)
+        .with_body(r#"{"id":"r2","name":"Soup Copy","slug":"soup-copy"}"#)
+        .create();
+    let output = run_from(
+        [
+            "mealie",
+            "recipes",
+            "duplicate",
+            "soup",
+            "--name",
+            "Soup Copy",
+            "--json",
+        ],
+        env(&server.url()),
+    )
+    .unwrap();
+    let values: serde_json::Value = serde_json::from_str(&output).unwrap();
+    assert_eq!(values[0]["slug"], "soup-copy");
+    mock.assert();
+}
+
+#[test]
+fn updates_recipe_last_made_timestamp() {
+    let mut server = Server::new();
+    let mock = server
+        .mock("PATCH", "/api/recipes/soup/last-made")
+        .match_body(Matcher::Json(
+            serde_json::json!({"timestamp":"2026-11-02T12:00:00Z"}),
+        ))
+        .with_body(r#"{"id":"r1","name":"Soup","slug":"soup"}"#)
+        .create();
+    let output = run_from(
+        [
+            "mealie",
+            "recipes",
+            "last-made",
+            "soup",
+            "--timestamp",
+            "2026-11-02T12:00:00Z",
+            "--quiet",
+        ],
+        env(&server.url()),
+    )
+    .unwrap();
+    assert_eq!(output, "r1\n");
+    mock.assert();
+}
+
+#[test]
+fn suggests_recipes_with_requested_food_ids() {
+    let mut server = Server::new();
+    let mock = server.mock("GET", "/api/recipes/suggestions")
+        .match_query(Matcher::AllOf(vec![Matcher::UrlEncoded("foods".into(), "f1".into()),Matcher::UrlEncoded("limit".into(), "5".into())]))
+        .with_body(r#"{"items":[{"recipe":{"id":"r1","name":"Soup","slug":"soup"},"missingFoods":[],"substitutedFoods":[],"missingTools":[]}]}"#).create();
+    let output = run_from(
+        [
+            "mealie", "recipes", "suggest", "--food", "f1", "--limit", "5", "--json",
+        ],
+        env(&server.url()),
+    )
+    .unwrap();
+    let values: serde_json::Value = serde_json::from_str(&output).unwrap();
+    assert_eq!(values[0]["recipe"]["slug"], "soup");
+    mock.assert();
+}
+
+#[test]
+fn recipe_action_previews_and_invalid_timestamps_are_read_only() {
+    let server = Server::new();
+    let preview = run_from(
+        [
+            "mealie",
+            "recipes",
+            "duplicate",
+            "soup",
+            "--name",
+            "Copy",
+            "--dry-run",
+        ],
+        env(&server.url()),
+    )
+    .unwrap();
+    assert!(preview.contains("Copy"));
+    let error = run_from(
+        [
+            "mealie",
+            "recipes",
+            "last-made",
+            "soup",
+            "--timestamp",
+            "yesterday",
+        ],
+        env(&server.url()),
+    )
+    .unwrap_err();
+    assert_eq!(error.code(), ErrorCode::InvalidArgs);
+}
+
+#[test]
 fn merge_tags_sends_from_and_to_ids() {
     let mut server = Server::new();
     let mock = server

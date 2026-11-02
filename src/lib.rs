@@ -511,6 +511,151 @@ fn execute(
             })
         }
         Command::Recipes(recipes) => match recipes {
+            RecipesCommand::Duplicate {
+                slug,
+                name,
+                dry_run,
+            } => {
+                validate_path_segment(&slug)?;
+                if name.as_ref().is_some_and(|name| name.trim().is_empty()) {
+                    return Err(AppError::new(
+                        ErrorCode::InvalidArgs,
+                        "recipe name cannot be empty",
+                    ));
+                }
+                let mut value = if dry_run {
+                    serde_json::json!({"slug":slug,"name":name})
+                } else {
+                    client.duplicate_recipe(&slug, name.as_deref())?
+                };
+                let object = value.as_object_mut().ok_or_else(|| {
+                    AppError::new(ErrorCode::ApiError, "invalid recipe duplicate response")
+                })?;
+                object.insert("ok".into(), true.into());
+                object.insert(
+                    "type".into(),
+                    if dry_run {
+                        "recipe_duplicate_plan"
+                    } else {
+                        "recipe_duplicated"
+                    }
+                    .into(),
+                );
+                Ok(CommandOutput {
+                    presentation: Presentation::RecipeDuplicate { dry_run },
+                    values: vec![value],
+                })
+            }
+            RecipesCommand::LastMade {
+                slug,
+                timestamp,
+                dry_run,
+            } => {
+                validate_path_segment(&slug)?;
+                chrono::DateTime::parse_from_rfc3339(&timestamp).map_err(|_| {
+                    AppError::new(
+                        ErrorCode::InvalidArgs,
+                        "timestamp must be an RFC 3339 date and time with an offset",
+                    )
+                })?;
+                let mut value = if dry_run {
+                    serde_json::json!({"slug":slug,"timestamp":timestamp})
+                } else {
+                    client.set_last_made(&slug, &timestamp)?
+                };
+                let object = value.as_object_mut().ok_or_else(|| {
+                    AppError::new(ErrorCode::ApiError, "invalid last-made response")
+                })?;
+                object.insert("ok".into(), true.into());
+                object.insert(
+                    "type".into(),
+                    if dry_run {
+                        "recipe_last_made_plan"
+                    } else {
+                        "recipe_updated"
+                    }
+                    .into(),
+                );
+                Ok(CommandOutput {
+                    presentation: Presentation::RecipeLastMade { dry_run },
+                    values: vec![value],
+                })
+            }
+            RecipesCommand::Suggest {
+                food,
+                tool,
+                limit,
+                max_missing_foods,
+                max_missing_tools,
+                exclude_foods_on_hand,
+                exclude_tools_on_hand,
+                exclude_substitutions,
+            } => {
+                for id in food.iter().chain(&tool) {
+                    validate_path_segment(id)?;
+                }
+                let mut query = vec![("limit".to_string(), limit.to_string())];
+                query.extend(food.into_iter().map(|id| ("foods".to_string(), id)));
+                query.extend(tool.into_iter().map(|id| ("tools".to_string(), id)));
+                if let Some(value) = max_missing_foods {
+                    query.push(("maxMissingFoods".into(), value.to_string()));
+                }
+                if let Some(value) = max_missing_tools {
+                    query.push(("maxMissingTools".into(), value.to_string()));
+                }
+                for (exclude, key) in [
+                    (exclude_foods_on_hand, "includeFoodsOnHand"),
+                    (exclude_tools_on_hand, "includeToolsOnHand"),
+                    (exclude_substitutions, "includeSubstitutions"),
+                ] {
+                    if exclude {
+                        query.push((key.into(), "false".into()));
+                    }
+                }
+                let values = client
+                    .suggest_recipes(&query)?
+                    .into_iter()
+                    .map(|value| {
+                        record(
+                            "recipe_suggestion",
+                            [
+                                (
+                                    "recipe",
+                                    value
+                                        .get("recipe")
+                                        .cloned()
+                                        .unwrap_or(serde_json::Value::Null),
+                                ),
+                                (
+                                    "missingFoods",
+                                    value
+                                        .get("missingFoods")
+                                        .cloned()
+                                        .unwrap_or(serde_json::Value::Null),
+                                ),
+                                (
+                                    "missingTools",
+                                    value
+                                        .get("missingTools")
+                                        .cloned()
+                                        .unwrap_or(serde_json::Value::Null),
+                                ),
+                                (
+                                    "substitutedFoods",
+                                    value
+                                        .get("substitutedFoods")
+                                        .cloned()
+                                        .unwrap_or(serde_json::Value::Null),
+                                ),
+                            ],
+                        )
+                    })
+                    .collect();
+                Ok(CommandOutput {
+                    presentation: Presentation::RecipeSuggestions,
+                    values,
+                })
+            }
             RecipesCommand::BulkExport(command) => match command {
                 cli::BulkExportCommand::Start { recipe, dry_run } => {
                     for slug in &recipe {

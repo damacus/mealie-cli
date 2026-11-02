@@ -60,6 +60,13 @@ pub enum Presentation {
     RecipeExport,
     ExportFormats,
     BulkPlan,
+    RecipeDuplicate {
+        dry_run: bool,
+    },
+    RecipeLastMade {
+        dry_run: bool,
+    },
+    RecipeSuggestions,
     BulkDeleted,
     BulkExportStart {
         dry_run: bool,
@@ -128,6 +135,47 @@ pub fn write_output(mode: OutputMode, output: CommandOutput) -> Result<String, A
 fn write_human(presentation: &Presentation, values: &[Value]) -> String {
     match presentation {
         Presentation::Status => write_status(&values[0]),
+        Presentation::RecipeDuplicate { dry_run } => {
+            if *dry_run {
+                format!(
+                    "Would duplicate recipe {} as {}\n",
+                    text(&values[0], "slug"),
+                    text(&values[0], "name")
+                )
+            } else {
+                format!("Duplicated recipe: {}\n", text(&values[0], "slug"))
+            }
+        }
+        Presentation::RecipeLastMade { dry_run } => {
+            if *dry_run {
+                format!(
+                    "Would set last made for {} to {}\n",
+                    text(&values[0], "slug"),
+                    text(&values[0], "timestamp")
+                )
+            } else {
+                format!("Updated last made: {}\n", text(&values[0], "slug"))
+            }
+        }
+        Presentation::RecipeSuggestions => {
+            if values.is_empty() {
+                "No recipe suggestions found.\n".to_string()
+            } else {
+                table(
+                    &["NAME", "SLUG", "ID"],
+                    values
+                        .iter()
+                        .map(|value| {
+                            vec![
+                                text(&value["recipe"], "name"),
+                                text(&value["recipe"], "slug"),
+                                text(&value["recipe"], "id"),
+                            ]
+                        })
+                        .collect(),
+                )
+            }
+        }
         Presentation::BulkExportStart { dry_run } => {
             if *dry_run {
                 format!("Would request export: {}\n", values[0]["request"])
@@ -535,6 +583,7 @@ fn write_quiet(values: &[Value]) -> String {
                         | "recipe_deleted"
                         | "recipe_bulk_verified"
                         | "recipe_bulk_deleted"
+                        | "recipe_duplicated"
                 )
             )
         })
