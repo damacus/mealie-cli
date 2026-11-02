@@ -625,6 +625,7 @@ fn write_quiet(values: &[Value]) -> String {
                         | "recipe_imported"
                         | "recipe_deleted"
                         | "recipe_bulk_verified"
+                        | "recipe_batch_updated"
                         | "recipe_bulk_deleted"
                         | "recipe_duplicated"
                         | "recipe_bulk_import_requested"

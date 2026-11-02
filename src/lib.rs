@@ -521,6 +521,109 @@ fn execute(
             })
         }
         Command::Recipes(recipes) => match recipes {
+            RecipesCommand::BatchUpdate {
+                file,
+                replace,
+                yes,
+                dry_run,
+            } => {
+                if !yes && !dry_run {
+                    return Err(AppError::new(
+                        ErrorCode::InvalidArgs,
+                        "batch updates may be partial and replacement can reset fields; pass --yes or --dry-run",
+                    ));
+                }
+                let data = std::fs::read_to_string(&file).map_err(|error| {
+                    AppError::new(
+                        ErrorCode::InvalidArgs,
+                        format!("cannot read batch file: {error}"),
+                    )
+                })?;
+                let input: serde_json::Value = serde_json::from_str(&data).map_err(|error| {
+                    AppError::new(
+                        ErrorCode::InvalidArgs,
+                        format!("invalid batch JSON: {error}"),
+                    )
+                })?;
+                let recipes = input
+                    .as_array()
+                    .filter(|array| !array.is_empty())
+                    .ok_or_else(|| {
+                        AppError::new(
+                            ErrorCode::InvalidArgs,
+                            "batch must be a non-empty JSON array",
+                        )
+                    })?;
+                let mut ids = std::collections::HashSet::new();
+                for recipe in recipes {
+                    let id = recipe
+                        .get("id")
+                        .and_then(serde_json::Value::as_str)
+                        .filter(|id| !id.is_empty())
+                        .ok_or_else(|| {
+                            AppError::new(ErrorCode::InvalidArgs, "each recipe must contain an id")
+                        })?;
+                    if !ids.insert(id.to_owned()) {
+                        return Err(AppError::new(
+                            ErrorCode::InvalidArgs,
+                            "duplicate recipe IDs are not allowed",
+                        ));
+                    }
+                }
+                let action = if replace { "replace" } else { "patch" };
+                if dry_run {
+                    return Ok(CommandOutput {
+                        presentation: Presentation::BulkPlan,
+                        values: vec![record(
+                            "recipe_batch_plan",
+                            [("action", serde_json::json!(action)), ("changes", input)],
+                        )],
+                    });
+                }
+                let response = client
+                    .batch_update_recipes(&input, replace)
+                    .map_err(|error| {
+                        AppError::new(
+                            error.code(),
+                            format!("batch update failed; changes may be partial: {error}"),
+                        )
+                    })?;
+                let items = response.as_array().ok_or_else(|| {
+                    AppError::new(
+                        ErrorCode::ApiError,
+                        "batch update returned an invalid response; changes may be partial",
+                    )
+                })?;
+                let returned: std::collections::HashSet<_> = items
+                    .iter()
+                    .filter_map(|item| {
+                        item.get("id")
+                            .and_then(serde_json::Value::as_str)
+                            .map(str::to_owned)
+                    })
+                    .collect();
+                if returned != ids || items.len() != ids.len() {
+                    return Err(AppError::new(
+                        ErrorCode::ApiError,
+                        "batch update returned incomplete results; changes may be partial",
+                    ));
+                }
+                let values = items
+                    .iter()
+                    .cloned()
+                    .map(|mut value| {
+                        if let Some(object) = value.as_object_mut() {
+                            object.insert("ok".into(), true.into());
+                            object.insert("type".into(), "recipe_batch_updated".into());
+                        }
+                        value
+                    })
+                    .collect();
+                Ok(CommandOutput {
+                    presentation: Presentation::RecipeList,
+                    values,
+                })
+            }
             RecipesCommand::Replace {
                 slug,
                 file,

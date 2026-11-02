@@ -92,6 +92,20 @@ impl<'a> PlanCreateRequest<'a> {
 }
 
 impl MealieClient {
+    pub fn batch_update_recipes(&self, recipes: &Value, replace: bool) -> Result<Value, AppError> {
+        let url = self.config.endpoint("/api/recipes");
+        let request = if replace {
+            self.http.put(url)
+        } else {
+            self.http.patch(url)
+        };
+        request
+            .bearer_auth(&self.config.token)
+            .json(recipes)
+            .send()
+            .map_err(AppError::from)
+            .and_then(|response| checked_json(response, "batch update recipes"))
+    }
     pub fn replace_recipe(&self, slug: &str, recipe: &Value) -> Result<Value, AppError> {
         self.http
             .put(self.config.endpoint(&format!("/api/recipes/{slug}")))

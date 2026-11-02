@@ -124,6 +124,12 @@ For full replacement use `mealie recipes replace <slug> --file <path>
 --dry-run`, then `--yes` to apply. Unlike a patch, replacement can reset fields
 omitted from the JSON object.
 
+`mealie recipes batch-update --file <path> --dry-run` previews a JSON array of
+recipe updates. Every entry must include a distinct recipe `id`. Replace
+`--dry-run` with `--yes` to submit; add `--replace` to use full replacement
+instead of partial updates. Mealie processes entries individually, so a failure
+can leave earlier recipes changed.
+
 Import recipes with `mealie recipes import-url --url <url>` or `mealie recipes
 import-file --file <path>` for HTML or JSON. Add `--include-tags` and
 `--include-categories` to import organisers, and `--dry-run` to preview.
