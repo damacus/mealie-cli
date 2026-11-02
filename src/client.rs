@@ -201,7 +201,7 @@ impl MealieClient {
             .map(|bytes| bytes.to_vec())
             .map_err(|error| AppError::from(error.without_url()))
     }
-    pub fn purge_bulk_exports(&self) -> Result<(), AppError> {
+    pub fn purge_bulk_exports(&self) -> Result<Option<Value>, AppError> {
         self.http
             .delete(
                 self.config
@@ -210,8 +210,7 @@ impl MealieClient {
             .bearer_auth(&self.config.token)
             .send()
             .map_err(AppError::from)
-            .and_then(|response| checked_optional_json(response, "purge recipe exports"))?;
-        Ok(())
+            .and_then(|response| checked_optional_json(response, "purge recipe exports"))
     }
     pub fn bulk_action(&self, action: &str, payload: &Value) -> Result<(), AppError> {
         self.http
