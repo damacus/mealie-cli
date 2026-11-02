@@ -205,6 +205,38 @@ fn empty_categories_are_described_as_categories() {
 }
 
 #[test]
+fn lists_only_unused_tags_from_the_empty_endpoint() {
+    let mut server = Server::new();
+    let mock = server
+        .mock("GET", "/api/organizers/tags/empty")
+        .with_body(r#"[{"id":"t1","name":"Old","slug":"old"}]"#)
+        .create();
+    let output = run_from(
+        ["mealie", "tags", "list", "--empty", "--json"],
+        env(&server.url()),
+    )
+    .unwrap();
+    let values: serde_json::Value = serde_json::from_str(&output).unwrap();
+    assert_eq!(values[0]["slug"], "old");
+    mock.assert();
+}
+
+#[test]
+fn empty_categories_endpoint_requires_an_array() {
+    let mut server = Server::new();
+    let _mock = server
+        .mock("GET", "/api/organizers/categories/empty")
+        .with_body(r#"{"unexpected":true}"#)
+        .create();
+    let error = run_from(
+        ["mealie", "categories", "list", "--empty"],
+        env(&server.url()),
+    )
+    .unwrap_err();
+    assert_eq!(error.code(), ErrorCode::ApiError);
+}
+
+#[test]
 fn rejects_missing_organiser_data_in_filtered_recipe_list() {
     let mut server = Server::new();
     let _mock = server
