@@ -97,6 +97,22 @@ pub enum OrganizerCommand {
 
 #[derive(Debug, Subcommand)]
 pub enum RecipesCommand {
+    /// Queue several recipe URL imports
+    BulkImport {
+        #[arg(long, required = true)]
+        url: Vec<String>,
+        #[arg(long)]
+        tag: Vec<String>,
+        #[arg(long)]
+        category: Vec<String>,
+        #[arg(long)]
+        dry_run: bool,
+    },
+    /// Inspect a bulk import report by ID
+    ImportReport {
+        #[arg(long)]
+        id: String,
+    },
     /// Duplicate a recipe, optionally choosing a name
     Duplicate {
         slug: String,

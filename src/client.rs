@@ -92,6 +92,23 @@ impl<'a> PlanCreateRequest<'a> {
 }
 
 impl MealieClient {
+    pub fn bulk_import(&self, payload: &Value) -> Result<Value, AppError> {
+        self.http
+            .post(self.config.endpoint("/api/recipes/create/url/bulk"))
+            .bearer_auth(&self.config.token)
+            .json(payload)
+            .send()
+            .map_err(AppError::from)
+            .and_then(|response| checked_json(response, "bulk import recipes"))
+    }
+    pub fn get_import_report(&self, id: &str) -> Result<Value, AppError> {
+        self.http
+            .get(self.config.endpoint(&format!("/api/groups/reports/{id}")))
+            .bearer_auth(&self.config.token)
+            .send()
+            .map_err(AppError::from)
+            .and_then(|response| checked_json(response, "get import report"))
+    }
     pub fn duplicate_recipe(&self, slug: &str, name: Option<&str>) -> Result<Value, AppError> {
         self.http
             .post(

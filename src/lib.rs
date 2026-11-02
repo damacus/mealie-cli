@@ -511,6 +511,116 @@ fn execute(
             })
         }
         Command::Recipes(recipes) => match recipes {
+            RecipesCommand::BulkImport {
+                url,
+                tag,
+                category,
+                dry_run,
+            } => {
+                for value in &url {
+                    let parsed = reqwest::Url::parse(value).map_err(|_| {
+                        AppError::new(ErrorCode::InvalidArgs, "recipe URLs must use HTTP or HTTPS")
+                    })?;
+                    if !matches!(parsed.scheme(), "http" | "https")
+                        || !parsed.username().is_empty()
+                        || parsed.password().is_some()
+                    {
+                        return Err(AppError::new(
+                            ErrorCode::InvalidArgs,
+                            "recipe URLs must use HTTP or HTTPS and contain no credentials",
+                        ));
+                    }
+                }
+                let mut tags = Vec::new();
+                let mut categories = Vec::new();
+                for (ids, kind, output) in [
+                    (&tag, "tags", &mut tags),
+                    (&category, "categories", &mut categories),
+                ] {
+                    for id in ids {
+                        validate_path_segment(id)?;
+                        let value =
+                            client.get_organizer(&format!("/api/organizers/{kind}/{id}"))?;
+                        if value.get("id").and_then(serde_json::Value::as_str) != Some(id.as_str())
+                            || value
+                                .get("name")
+                                .and_then(serde_json::Value::as_str)
+                                .is_none()
+                            || value
+                                .get("slug")
+                                .and_then(serde_json::Value::as_str)
+                                .is_none()
+                        {
+                            return Err(AppError::new(
+                                ErrorCode::ApiError,
+                                "invalid organiser response",
+                            ));
+                        }
+                        output.push(value);
+                    }
+                }
+                let imports: Vec<_> = url
+                    .iter()
+                    .map(|value| {
+                        let mut item = serde_json::json!({"url":value});
+                        if !tags.is_empty() {
+                            item["tags"] = serde_json::json!(tags);
+                        }
+                        if !categories.is_empty() {
+                            item["categories"] = serde_json::json!(categories);
+                        }
+                        item
+                    })
+                    .collect();
+                let payload = serde_json::json!({"imports":imports});
+                let value = if dry_run {
+                    serde_json::json!({"request":payload})
+                } else {
+                    client.bulk_import(&payload)?
+                };
+                if !dry_run
+                    && value
+                        .get("reportId")
+                        .and_then(serde_json::Value::as_str)
+                        .is_none()
+                {
+                    return Err(AppError::new(
+                        ErrorCode::ApiError,
+                        "bulk import was requested but response lacks report ID",
+                    ));
+                }
+                let mut value = value;
+                let object = value.as_object_mut().ok_or_else(|| {
+                    AppError::new(ErrorCode::ApiError, "invalid bulk import response")
+                })?;
+                object.insert("ok".into(), true.into());
+                object.insert(
+                    "type".into(),
+                    if dry_run {
+                        "recipe_bulk_import_plan"
+                    } else {
+                        "recipe_bulk_import_requested"
+                    }
+                    .into(),
+                );
+                Ok(CommandOutput {
+                    presentation: Presentation::BulkImport { dry_run },
+                    values: vec![value],
+                })
+            }
+            RecipesCommand::ImportReport { id } => {
+                validate_path_segment(&id)?;
+                let mut value = client.get_import_report(&id)?;
+                let object = value.as_object_mut().ok_or_else(|| {
+                    AppError::new(ErrorCode::ApiError, "invalid import report response")
+                })?;
+                object.insert("ok".into(), true.into());
+                object.insert("type".into(), "recipe_import_report".into());
+                Ok(CommandOutput {
+                    presentation: Presentation::ImportReport,
+                    values: vec![value],
+                })
+            }
             RecipesCommand::Duplicate {
                 slug,
                 name,
