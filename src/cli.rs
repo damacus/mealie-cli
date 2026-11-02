@@ -100,6 +100,17 @@ pub enum OrganizerCommand {
 
 #[derive(Debug, Subcommand)]
 pub enum RecipesCommand {
+    /// Update several recipes from a JSON array; replacement can reset omitted fields
+    BatchUpdate {
+        #[arg(long)]
+        file: std::path::PathBuf,
+        #[arg(long)]
+        replace: bool,
+        #[arg(long, conflicts_with = "dry_run")]
+        yes: bool,
+        #[arg(long)]
+        dry_run: bool,
+    },
     /// Replace a recipe from a JSON object (omitted fields may be reset)
     Replace {
         slug: String,

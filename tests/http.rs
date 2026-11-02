@@ -722,6 +722,68 @@ fn recipe_replacement_preview_explains_omitted_fields() {
 }
 
 #[test]
+fn batch_patch_requires_confirmation_and_returns_updated_records() {
+    let mut server = Server::new();
+    let path = std::env::temp_dir().join(format!("mealie-batch-patch-{}.json", std::process::id()));
+    std::fs::write(&path, r#"[{"id":"r1","description":"Fresh"}]"#).unwrap();
+    let file = path.to_str().unwrap();
+    let error = run_from(
+        ["mealie", "recipes", "batch-update", "--file", file],
+        env(&server.url()),
+    )
+    .unwrap_err();
+    assert_eq!(error.code(), ErrorCode::InvalidArgs);
+    let mock = server
+        .mock("PATCH", "/api/recipes")
+        .match_body(Matcher::Json(
+            serde_json::json!([{"id":"r1","description":"Fresh"}]),
+        ))
+        .with_body(r#"[{"id":"r1","name":"Soup","slug":"soup"}]"#)
+        .create();
+    let output = run_from(
+        [
+            "mealie",
+            "recipes",
+            "batch-update",
+            "--file",
+            file,
+            "--yes",
+            "--quiet",
+        ],
+        env(&server.url()),
+    )
+    .unwrap();
+    std::fs::remove_file(path).unwrap();
+    assert_eq!(output, "r1\n");
+    mock.assert();
+}
+
+#[test]
+fn batch_replace_reports_incomplete_response() {
+    let mut server = Server::new();
+    let path =
+        std::env::temp_dir().join(format!("mealie-batch-replace-{}.json", std::process::id()));
+    std::fs::write(&path, r#"[{"id":"r1","name":"Soup"}]"#).unwrap();
+    let mock = server.mock("PUT", "/api/recipes").with_body("[]").create();
+    let error = run_from(
+        [
+            "mealie",
+            "recipes",
+            "batch-update",
+            "--file",
+            path.to_str().unwrap(),
+            "--replace",
+            "--yes",
+        ],
+        env(&server.url()),
+    )
+    .unwrap_err();
+    std::fs::remove_file(path).unwrap();
+    assert!(error.to_human().contains("partial"));
+    mock.assert();
+}
+
+#[test]
 fn imports_recipe_from_url_with_explicit_organizer_options() {
     let mut server = Server::new();
     let mock = server.mock("POST", "/api/recipes/create/url")
