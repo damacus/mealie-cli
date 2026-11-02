@@ -797,6 +797,70 @@ fn bulk_category_preview_reads_organizers_but_does_not_mutate() {
 }
 
 #[test]
+fn bulk_delete_requires_confirmation_and_verifies_absence() {
+    let mut server = Server::new();
+    let error = run_from(
+        ["mealie", "recipes", "bulk-delete", "--recipe", "soup"],
+        env(&server.url()),
+    )
+    .unwrap_err();
+    assert_eq!(error.code(), ErrorCode::InvalidArgs);
+    let bulk = server
+        .mock("POST", "/api/recipes/bulk-actions/delete")
+        .match_body(Matcher::Json(serde_json::json!({"recipes":["soup"]})))
+        .with_body("null")
+        .create();
+    let check = server
+        .mock("GET", "/api/recipes/soup")
+        .with_status(404)
+        .create();
+    let output = run_from(
+        [
+            "mealie",
+            "recipes",
+            "bulk-delete",
+            "--recipe",
+            "soup",
+            "--yes",
+            "--json",
+        ],
+        env(&server.url()),
+    )
+    .unwrap();
+    let values: serde_json::Value = serde_json::from_str(&output).unwrap();
+    assert_eq!(values[0]["slug"], "soup");
+    bulk.assert();
+    check.assert();
+}
+
+#[test]
+fn bulk_delete_reports_remaining_recipes() {
+    let mut server = Server::new();
+    let _bulk = server
+        .mock("POST", "/api/recipes/bulk-actions/delete")
+        .with_body("null")
+        .create();
+    let _check = server
+        .mock("GET", "/api/recipes/soup")
+        .with_body(r#"{"id":"r1","name":"Soup","slug":"soup"}"#)
+        .create();
+    let error = run_from(
+        [
+            "mealie",
+            "recipes",
+            "bulk-delete",
+            "--recipe",
+            "soup",
+            "--yes",
+        ],
+        env(&server.url()),
+    )
+    .unwrap_err();
+    assert!(error.to_human().contains("soup"));
+    assert!(error.to_human().contains("partial"));
+}
+
+#[test]
 fn merge_tags_sends_from_and_to_ids() {
     let mut server = Server::new();
     let mock = server

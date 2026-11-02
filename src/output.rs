@@ -60,6 +60,7 @@ pub enum Presentation {
     RecipeExport,
     ExportFormats,
     BulkPlan,
+    BulkDeleted,
     RecipeDelete {
         dry_run: bool,
     },
@@ -120,6 +121,10 @@ pub fn write_output(mode: OutputMode, output: CommandOutput) -> Result<String, A
 fn write_human(presentation: &Presentation, values: &[Value]) -> String {
     match presentation {
         Presentation::Status => write_status(&values[0]),
+        Presentation::BulkDeleted => values
+            .iter()
+            .map(|value| format!("Deleted recipe: {}\n", text(value, "slug")))
+            .collect(),
         Presentation::BulkPlan => format!(
             "Would apply bulk {}: {}\n",
             text(&values[0], "action"),
@@ -483,6 +488,7 @@ fn write_quiet(values: &[Value]) -> String {
                         | "recipe_imported"
                         | "recipe_deleted"
                         | "recipe_bulk_verified"
+                        | "recipe_bulk_deleted"
                 )
             )
         })
@@ -490,7 +496,7 @@ fn write_quiet(values: &[Value]) -> String {
             value.get("id").or_else(|| {
                 if matches!(
                     value.get("type").and_then(Value::as_str),
-                    Some("recipe_created" | "recipe_imported")
+                    Some("recipe_created" | "recipe_imported" | "recipe_bulk_deleted")
                 ) {
                     value.get("slug")
                 } else {
