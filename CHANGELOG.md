@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.6](https://github.com/damacus/mealie-cli/compare/v0.1.5...v0.1.6) (2026-11-23)
+
+
+### Bug Fixes
+
+* **deps:** ship Clap updates and Rust 1.100 ([17bdfd5](https://github.com/damacus/mealie-cli/commit/17bdfd5891dd1e57aa507dc36fa76cef127e11ce))
+
 ## [0.1.5](https://github.com/damacus/mealie-cli/compare/v0.1.4...v0.1.5) (2026-11-02)
 
 
