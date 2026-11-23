@@ -7,6 +7,18 @@
   "packageRules": [
     {
       "matchManagers": ["cargo"],
+      "matchDepTypes": ["dependencies", "build-dependencies"],
+      "semanticCommitType": "fix",
+      "semanticCommitScope": "deps"
+    },
+    {
+      "matchManagers": ["dockerfile"],
+      "matchPackageNames": ["rust", "alpine"],
+      "semanticCommitType": "fix",
+      "semanticCommitScope": "deps"
+    },
+    {
+      "matchManagers": ["cargo"],
       "matchPackageNames": ["clap", "clap_complete"],
       "matchUpdateTypes": ["minor", "patch"],
       "automerge": true
