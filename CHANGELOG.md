@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.7](https://github.com/damacus/mealie-cli/compare/v0.1.6...v0.1.7) (2026-11-25)
+
+
+### Bug Fixes
+
+* **deps:** update rust crate clap to v4.6.10 ([#79](https://github.com/damacus/mealie-cli/issues/79)) ([4a35eb0](https://github.com/damacus/mealie-cli/commit/4a35eb0e7b97e521f05ab6fe8d31ad2394979179))
+
 ## [0.1.6](https://github.com/damacus/mealie-cli/compare/v0.1.5...v0.1.6) (2026-11-23)
 
 
